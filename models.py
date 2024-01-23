@@ -47,7 +47,6 @@ class Student(Base):
             'LastName': self.LastName,
             'MiddleName': self.MiddleName,
             'Email': self.Email,
-            'Password': self.Password,
             'Gender': self.Gender,
             'DateOfBirth': self.DateOfBirth,
             'PlaceOfBirth': self.PlaceOfBirth,
@@ -415,7 +414,7 @@ class Code(Base):
     __tablename__ = "SGECode"
 
     CodeId = Column(Integer, primary_key=True)
-    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'), unique=True)
+    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'))
     CodeValue = Column(Text)
     CodeType = Column(String)
     CodeExpirationDate = Column(DateTime)
@@ -781,7 +780,6 @@ class Eligibles(Base):
             "StudentNumber": self.StudentNumber,
             "ElectionId": self.ElectionId,
             "IsVotedOrAbstained": self.HasVotedOrAbstained,
-            "VotingPassword": self.VotingPassword,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

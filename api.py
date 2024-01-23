@@ -107,7 +107,7 @@ router = APIRouter(prefix="/api/v1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
+    allow_origins=['https://hammerhead-app-epwem.ondigitalocean.app', 'https://sgeportal.cloud', os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -844,16 +844,18 @@ def student_Voting_Login(data: LoginData, db: Session = Depends(get_db)):
     # get the student in eligibles table
     student = db.query(Eligibles).filter(Eligibles.StudentNumber == StudentNumber).first()
     if not student:
-        return {"error": "Student not found or not eligible."}
-    
-    student_password = student.VotingPassword
+        return {"error": "Student not found."}
 
     # Check if the password matches
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    if not pwd_context.verify(Password, student_password):
+    if not pwd_context.verify(Password, student.VotingPassword):
         return {"error": "Incorrect password."}
 
-    return {"message": True}
+    student_id = db.query(Student).filter(Student.StudentNumber == StudentNumber).first()
+    student_id = student_id.StudentId
+    
+    return {"message": True,
+            "student_id": student_id}
 
 @router.post("/student/election-management/login", tags=["Student"])
 def student_Election_Management_Login(data: LoginData, db: Session = Depends(get_db)):
@@ -926,6 +928,83 @@ class StudentOrganizationData(BaseModel):
 def get_All_Student_Organization(db: Session = Depends(get_db)):
     student_organizations = db.query(StudentOrganization).order_by(StudentOrganization.StudentOrganizationId).all()
     return {"student_organizations": [student_organization.to_dict() for student_organization in student_organizations]}
+
+@router.get("/student/organization/{student_organization_id}", tags=["Student Organization"])
+def get_Student_Organization(student_organization_id: int, db: Session = Depends(get_db)):
+    student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == student_organization_id).first()
+
+    if not student_organization:
+        return {"error": f"Student organization with id {student_organization_id} not found."}
+    
+    student_organization = student_organization.to_dict()
+
+    # Get adviser image in cloudinary using tag
+    try:
+        get_image = resources_by_tag(student_organization["AdviserImage"])
+        adviser_image = get_image["resources"][0]["secure_url"] if get_image else ""
+    except Exception as e:
+        print(f"Error fetching image from Cloudinary: {e}")
+        adviser_image = ""
+
+    student_organization["AdviserImage"] = adviser_image
+
+    # Get officers
+    officers = db.query(OrganizationOfficer).filter(OrganizationOfficer.StudentOrganizationId == student_organization_id).all()
+    
+    for officer in officers:
+        # Get officer image in cloudinary using tag 
+        try:
+            get_image = resources_by_tag(officer.Image)
+            officer_image = get_image["resources"][0]["secure_url"] if get_image else ""
+        except Exception as e:
+            print(f"Error fetching image from Cloudinary: {e}")
+            officer_image = ""
+
+        officer.Image = officer_image
+
+    student_organization["officers"] = [officer.to_dict() for officer in officers]
+
+    # Attach student's data to officers base on student number
+    for officer in student_organization["officers"]:
+        student = db.query(Student).filter(Student.StudentNumber == officer["StudentNumber"]).first()
+        student_metadata = get_Student_Metadata_by_studnumber(student.StudentNumber)
+
+        if "CourseCode" in student_metadata:
+            student_year = student_metadata["Year"]
+
+        # Get the section of the student
+        student_section = get_Student_Section_by_studnumber(student.StudentNumber)
+
+        officer["FirstName"] = student.FirstName
+        officer["MiddleName"] = student.MiddleName if student.MiddleName else ''
+        officer["LastName"] = student.LastName
+        officer["CourseCode"] = student_metadata["CourseCode"] if "CourseCode" in student_metadata else ''
+        officer["Year"] = student_year if "Year" in student_metadata else ''
+        officer["Section"] = student_section if student_section else ''
+
+    # Get members
+    members = db.query(OrganizationMember).filter(OrganizationMember.StudentOrganizationId == student_organization_id).all()
+    student_organization["members"] = [member.to_dict() for member in members]
+
+    # Attach student's data to members base on student number
+    for member in student_organization["members"]:
+        student = db.query(Student).filter(Student.StudentNumber == member["StudentNumber"]).first()
+        student_metadata = get_Student_Metadata_by_studnumber(student.StudentNumber)
+
+        if "CourseCode" in student_metadata:
+            student_year = student_metadata["Year"]
+
+        # Get the section of the student
+        student_section = get_Student_Section_by_studnumber(student.StudentNumber)
+
+        member["FirstName"] = student.FirstName
+        member["MiddleName"] = student.MiddleName if student.MiddleName else ''
+        member["LastName"] = student.LastName
+        member["CourseCode"] = student_metadata["CourseCode"] if "CourseCode" in student_metadata else ''
+        member["Year"] = student_year if "Year" in student_metadata else ''
+        member["Section"] = student_section if student_section else ''
+
+    return {"student_organization": student_organization}
 
 """ ** POST Methods: All about Student Organizations APIs ** """
 # Create a queue
@@ -1150,31 +1229,8 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         
         # Get the student organization logo from cloudinary using the student organization id in the election
         try:
-            # Define the base path without the extension
-            base_logo_path = f"{CachedImagesDirectoryElection}/{student_organization.OrganizationLogo}"
-
-            # Use glob to find the file with any extension
-            matching_files  = glob.glob(f"{base_logo_path}.*")
-
-            # If the file exist in the cache directory, use it
-            if matching_files: 
-                # Get the base filename and extension
-                logo_path = student_organization.OrganizationLogo + os.path.splitext(matching_files[0])[1]
-
-            else: # If the file does not exist in the cache directory, fetch it from cloudinary
-                organization_logo = resources_by_tag(student_organization.OrganizationLogo)
-                
-                if organization_logo:
-                    # Get the file extension from the URL
-                    parsed_url = urlparse(organization_logo["resources"][0]["secure_url"])
-                    _, file_extension = os.path.splitext(parsed_url.path)
-
-                    logo_path = f"{base_logo_path}{file_extension}"
-
-                    # Schedule the image download as a background task
-                    background_tasks.add_task(download_image, organization_logo["resources"][0]["secure_url"], logo_path)
-
-            election_dict["OrganizationLogo"] = logo_path
+            organization_logo = resources_by_tag(student_organization.OrganizationLogo)
+            election_dict["OrganizationLogo"] = organization_logo["resources"][0]["secure_url"] if organization_logo else ""
         except Exception as e:
             print(f"Error fetching image from Cloudinary: {e}")
             election_dict["OrganizationLogo"] = ""
@@ -1424,6 +1480,12 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
     # Insert students to eligibles table if matches with student organization member requirement or if the student org requirement is any course
     student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == new_election.StudentOrganizationId).first()
     
+    student_emails_to_find = ["iammeliodas123@gmail.com", 
+                              "iammeliodas12345@gmail.com", 
+                              "iammeliodas123456@gmail.com",
+                              "student2.sge@gmail.com",
+                              "student3.sge@gmail.com"]
+
     if student_organization.OrganizationMemberRequirements == "Any":
         students = db.query(Student).all()
 
@@ -1436,46 +1498,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                 if iteration == limit:
                     break
 
-                iteration += 1
-
-                pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-                # Generate a random code
-                pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-
-                # Hash the password
-                hashed_password = pwd_context.hash(pass_value)
-
-                # Get the email of the student
-                student_email = student.Email
-
-                new_eligible = Eligibles(ElectionId=new_election.ElectionId,
-                                        StudentNumber=student.StudentNumber,
-                                        HasVotedOrAbstained=False,
-                                        VotingPassword=hashed_password,
-                                        created_at=datetime.now(), 
-                                        updated_at=datetime.now())
-                db.add(new_eligible)
-                db.commit()
-
-                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
-    
-    # If the student organization member requirement is not any course, insert students to eligibles table if matches with student organization member requirement
-    else:
-        students = db.query(Student).all()
-
-        limit = 10
-        iteration = 0
-
-        for student in students:
-            # Get the student's course
-            student_course = get_Student_Course_by_studnumber(student.StudentNumber, db)
-
-            if student_course:
-                # Check if the student's course matches the student organization course requirements and not in the eligibles table yet with same election id
-                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles).filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber).first():
-                    if iteration == limit:
-                        break
+                # Only allow student who is in the student_emails_to_find list
+                if student.Email in student_emails_to_find:
 
                     iteration += 1
 
@@ -1500,6 +1524,50 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                     db.commit()
 
                     await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+    
+    # If the student organization member requirement is not any course, insert students to eligibles table if matches with student organization member requirement
+    else:
+        students = db.query(Student).all()
+
+        limit = 10
+        iteration = 0
+
+        for student in students:
+            # Get the student's course
+            student_course = get_Student_Course_by_studnumber(student.StudentNumber, db)
+
+            if student_course:
+                # Check if the student's course matches the student organization course requirements and not in the eligibles table yet with same election id
+                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles).filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber).first():
+                    if iteration == limit:
+                        break
+
+                    # Only allow student who is in the student_emails_to_find list
+                    if student.Email in student_emails_to_find:
+                    
+                        iteration += 1
+
+                        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+                        # Generate a random code
+                        pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+
+                        # Hash the password
+                        hashed_password = pwd_context.hash(pass_value)
+
+                        # Get the email of the student
+                        student_email = student.Email
+
+                        new_eligible = Eligibles(ElectionId=new_election.ElectionId,
+                                                StudentNumber=student.StudentNumber,
+                                                HasVotedOrAbstained=False,
+                                                VotingPassword=hashed_password,
+                                                created_at=datetime.now(), 
+                                                updated_at=datetime.now())
+                        db.add(new_eligible)
+                        db.commit()
+
+                        await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
     # Schedule the get_winners function to run at election.VotingEnd
     trigger = DateTrigger(run_date=new_election.VotingEnd)
@@ -1546,7 +1614,7 @@ def delete_Election(data: ElectionDelete, db: Session = Depends(get_db)):
         return {"error": "Election not found"}
 
     # DELETE ALL REFERENCED ROWS with the election id
-    tables = [CreatedElectionPosition, CoC, ElectionAnalytics, Candidates, PartyList, RatingsTracker, VotingsTracker, Eligibles]
+    tables = [CreatedElectionPosition, CoC, ElectionAnalytics, Candidates, PartyList, RatingsTracker, VotingsTracker, Eligibles, ElectionWinners]
     for table in tables:
         delete_rows(db, table, data.id)
 
@@ -2365,7 +2433,7 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         get_position_quantity = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election_id, CreatedElectionPosition.PositionName == position).first()
 
         if get_position >= int(get_position_quantity.PositionQuantity):
-            return JSONResponse(status_code=400, content={"error": "The number of candidates for this position is already full."})
+            return JSONResponse(status_code=400, content={"error": "The number of candidates for this partylist for this position is already full."})
     
     new_coc = CoC(ElectionId=election_id,
                     StudentNumber=student_number,
@@ -3206,16 +3274,52 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
                 print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
                 display_photo_url = ""
 
+            # Get candidate partylist
+            partylist = db.query(PartyList).filter(PartyList.PartyListId == candidate.PartyListId).first()
+            partylist_name = partylist.PartyListName if partylist else ""
+
             results.append({
                 'rank': i + 1,
                 'candidate_student_number': candidate.StudentNumber,
                 'full_name': full_name,
+                'partylist_name': partylist_name,
                 'display_photo': display_photo_url,
                 'votes': candidate.Votes,
+                'times_abstained': candidate.TimesAbstained,
                 'percentage': (candidate.Votes / total_votes) * 100 if total_votes > 0 else 0,
             })
 
-        return results
+        # Get total votes of position from all candidates
+        total_votes_position = sum(candidate.Votes for candidate in db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).all())
+
+        # Get total abstain count of position from all candidates
+        total_abstain_count = sum(candidate.TimesAbstained for candidate in db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).all())
+
+        # Get all eligible voters for this election from eligibles table
+        total_eligible_voters = db.query(Eligibles).filter(Eligibles.ElectionId == id).count()
+
+        # Get the studentorganization logo
+        student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == db.query(Election).filter(Election.ElectionId == id).first().StudentOrganizationId).first()
+
+        # Get the studentorganization logo from cloudinary using the studentorganization.logo resources by tag in cloudinary
+        try:
+            student_organization_logo = resources_by_tag(student_organization.OrganizationLogo)
+            student_organization_logo_url = student_organization_logo["resources"][0]["secure_url"] if student_organization_logo else ""
+        except Exception as e:
+            print(f"Error fetching Logo from Cloudinary: {e}")
+            student_organization_logo_url = ""
+
+        # Return the VotingEnd
+        voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd
+
+        return {
+            "results": results,
+            "total_votes_position": total_votes_position,
+            "total_abstain_count": total_abstain_count,
+            "total_eligible_voters": total_eligible_voters,
+            "student_organization_logo": student_organization_logo_url,
+            "voting_end": voting_end,
+        }
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching all candidates from the database"})
 
@@ -3244,6 +3348,12 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
             # +1 the abstaincount in ElectionAnalytics table
             election_analytics.AbstainCount += 1
             election_analytics.updated_at = datetime.now()
+
+            # +1 the timesabstained of all candidates on that position in Candidates table
+            """candidates = db.query(Candidates).filter(Candidates.ElectionId == votes_list.election_id, Candidates.SelectedPositionName == vote.position_name).all()
+            for candidate in candidates:
+                candidate.TimesAbstained += 1
+                candidate.updated_at = datetime.now()"""
 
             db.commit()
             continue
@@ -3369,6 +3479,11 @@ def gather_winners_by_election_id(election_id: int):
 
         db.commit()
 
+    # Remove students in eligibles table with election id since voting period has ended
+    #db.query(Eligibles).filter(Eligibles.ElectionId == election.ElectionId).delete()
+    #db.commit()
+
+
 """ ** GET Methods: ElectionWinners Table APIs ** """
     
 @router.get("/votings/get-winners/{election_id}", tags=["ElectionWinners"])
@@ -3420,7 +3535,40 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
             "display_photo": display_photo_url if display_photo_url else "",
         })
 
-    return {"winners": winners_dict}
+        # Get the candidate times abstained
+        winners_dict[winner.SelectedPositionName]["candidates"][i]["times_abstained"] = candidate.TimesAbstained
+
+        # Get the percentage of votes of the candidate
+        election_analytic = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == election_id).first()
+        winners_dict[winner.SelectedPositionName]["candidates"][i]["percentage"] = (winner.Votes / election_analytic.VotesCount) * 100 if election_analytic.VotesCount > 0 else 0
+
+        # Get the candidate metadata
+        candidate_metadata = get_Student_Metadata_by_studnumber(winner.StudentNumber)
+        candidate_section = get_Student_Section_by_studnumber(winner.StudentNumber)
+
+        if "CourseCode" in candidate_metadata:
+            winners_dict[winner.SelectedPositionName]["candidates"][i]["course_code"] = candidate_metadata["CourseCode"]
+            winners_dict[winner.SelectedPositionName]["candidates"][i]["year"] = candidate_metadata["Year"]
+            winners_dict[winner.SelectedPositionName]["candidates"][i]["semester"] = candidate_metadata["Semester"]
+
+        if candidate_section:
+            winners_dict[winner.SelectedPositionName]["candidates"][i]["section"] = candidate_section
+
+    # Count all eligibles for this election
+    num_eligible_voters = db.query(Eligibles).filter(Eligibles.ElectionId == election_id).count()
+
+    # Get the total of votes for this election
+    election_analytics = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == election_id).first()
+    total_votes = election_analytics.VotesCount
+
+    # Get the total of abstain for this election
+    total_abstain = election_analytics.AbstainCount
+
+    return { "num_eligible_voters": num_eligible_voters, 
+            "total_votes": total_votes, 
+            "total_abstain": total_abstain,
+            "winners": winners_dict
+            }
 
 """ ** POST Methods: All about ElectionWinners Table APIs ** """
 
