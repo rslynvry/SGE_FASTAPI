@@ -107,7 +107,7 @@ router = APIRouter(prefix="/api/v1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['https://hammerhead-app-epwem.ondigitalocean.app', 'https://sgeportal.cloud', os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
+    allow_origins=['https://sge-voting-byvcc.ondigitalocean.app', 'https://king-prawn-app-2ep7s.ondigitalocean.app', 'https://hammerhead-app-epwem.ondigitalocean.app', 'https://sgeportal.cloud', os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -875,7 +875,7 @@ def student_Election_Management_Login(data: LoginData, db: Session = Depends(get
         if not pwd_context.verify(Password, comelec.ComelecPassword):
             return {"error": "Incorrect password."}
         
-        return {"message": True, "user_role": "comelec"}
+        return {"message": True, "user_role": "comelec", "student_id": student.StudentId}
     
     # Attempt to login as student organization officer
     officer = db.query(OrganizationOfficer).filter(OrganizationOfficer.StudentNumber == StudentNumber).first()
