@@ -2418,7 +2418,7 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
     
-    if election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) > manila_now or election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
+    if manila_now > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
 
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
