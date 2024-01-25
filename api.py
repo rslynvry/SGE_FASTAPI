@@ -38,6 +38,7 @@ import asyncio
 import aiohttp
 import requests
 import glob
+from pytz import timezone
 
 from urllib.parse import urlparse
 from passlib.context import CryptContext
@@ -127,6 +128,8 @@ def get_db():
     finally:
         db.close()
 
+manila_now = datetime.now(timezone('Asia/Manila'))
+
 # Create anbd start the scheduler
 scheduler = BackgroundScheduler()
 scheduler.add_jobstore(SQLAlchemyJobStore(url='sqlite:///jobs.sqlite'), 'default')
@@ -163,6 +166,16 @@ from urllib.parse import unquote
 async def get_image(image_path: str):
     # Decode the image path
     return FileResponse(f'{CachedImagesDirectoryElection}/{unquote(image_path)}')
+
+@router.get("/get/time/now", tags=["Time"])
+def get_time_now():
+    # Get the current date/time in UTC
+    now_utc = datetime.now(timezone('UTC'))
+
+    # Convert to Asia/Manila timezone
+    now_asia_manila = now_utc.astimezone(timezone('Asia/Manila'))
+
+    return {"time_now": manila_now}
 
 def create_student_set_as_comelec():
     db = SessionLocal()
@@ -613,8 +626,8 @@ def student_Insert_Data_Manual(data: SaveStudentData, db: Session = Depends(get_
         if not existing_code:
             new_pass = StudentPassword(StudentNumber=data.student_number, 
                             Password=hashed_password,
-                            created_at=datetime.now(),
-                            updated_at=datetime.now())
+                            created_at=manila_now,
+                            updated_at=manila_now)
             db.add(new_pass)
             db.commit()
 
@@ -668,8 +681,8 @@ async def student_Insert_Data_Attachment(files: List[UploadFile] = File(...), db
                                    EmailSent=0, 
                                    EmailFailed=0,
                                    Status="Pending",
-                                   created_at=datetime.now(),
-                                   updated_at=datetime.now())
+                                   created_at=manila_now,
+                                   updated_at=manila_now)
         db.add(new_queue)
         db.flush() # Flush the session to get the QueueId
 
@@ -710,8 +723,8 @@ async def student_Insert_Data_Attachment(files: List[UploadFile] = File(...), db
                     if not existing_code:
                         new_pass = StudentPassword(StudentNumber=row['StudentNumber'], 
                                         Password=hashed_password,
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
                         db.add(new_pass)
                         db.commit()
 
@@ -807,7 +820,7 @@ async def student_Insert_Data_Attachment(files: List[UploadFile] = File(...), db
 
     if inserted_student_count > 0 or incomplete_student_column_count > 0:
         # Save the PDF to a temporary file
-        now = datetime.now()
+        now = manila_now
         pdf_name = f"Report_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
         doc = SimpleDocTemplate(pdf_name, pagesize=letter)
         doc.build(elements)
@@ -1054,8 +1067,8 @@ async def student_Organization_Create(data: StudentOrganizationData, db: Session
         AdviserName=data.organization_adviser_name,
         Vision=data.organization_vision,
         Mission=data.organization_mission,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
+        created_at=manila_now,
+        updated_at=manila_now
     )
 
     db.add(organization)
@@ -1099,8 +1112,8 @@ async def student_Organization_Create(data: StudentOrganizationData, db: Session
             Position=officer.position,
             OfficerPassword=hashed_password,
             Image='',
-            created_at=datetime.now(),
-            updated_at=datetime.now()
+            created_at=manila_now,
+            updated_at=manila_now
         )
 
         await student_officer_temp_password_queue.put((officer.student_number, student_email, pass_value))
@@ -1123,8 +1136,8 @@ async def student_Organization_Create(data: StudentOrganizationData, db: Session
         new_member = OrganizationMember(
             StudentOrganizationId=organization.StudentOrganizationId,
             StudentNumber=member.student_number,
-            created_at=datetime.now(),
-            updated_at=datetime.now()
+            created_at=manila_now,
+            updated_at=manila_now
         )
         db.add(new_member)
         db.commit()
@@ -1266,7 +1279,7 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         election_dict["Positions"] = [position.to_dict(i+1) for i, position in enumerate(positions)]
 
         # Determine what election period
-        now = datetime.now()
+        now = manila_now
         if now < election.CoCFilingStart:
             election_dict["ElectionPeriod"] = "Pre-Election"
         elif now >= election.CoCFilingStart and now <= election.CoCFilingEnd:
@@ -1296,7 +1309,7 @@ def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends
     elections_with_creator = []
     atleast_one_available_election = False
 
-    now = datetime.now()
+    now = manila_now
 
     for i, election in enumerate(elections):
         creator = db.query(Student).filter(Student.StudentNumber == election.CreatedBy).first()
@@ -1466,16 +1479,16 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                             VotingEnd=election_data.election_info.voting_end,
                             AppealStart=election_data.election_info.appeal_start,
                             AppealEnd=election_data.election_info.appeal_end,
-                            created_at=datetime.now(), 
-                            updated_at=datetime.now())
+                            created_at=manila_now, 
+                            updated_at=manila_now)
     db.add(new_election)
     db.commit()
 
     new_election_analytics = ElectionAnalytics(ElectionId=new_election.ElectionId,
                                                 AbstainCount=0,
                                                 VotesCount=0,
-                                                created_at=datetime.now(), 
-                                                updated_at=datetime.now())
+                                                created_at=manila_now, 
+                                                updated_at=manila_now)
     db.add(new_election_analytics)
     db.commit()
 
@@ -1483,8 +1496,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
         new_position = CreatedElectionPosition(ElectionId=new_election.ElectionId,
                                                 PositionName=position.value,
                                                 PositionQuantity=position.quantity,
-                                                created_at=datetime.now(), 
-                                                updated_at=datetime.now())
+                                                created_at=manila_now, 
+                                                updated_at=manila_now)
         db.add(new_position)
         db.commit()
 
@@ -1529,8 +1542,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                             StudentNumber=student.StudentNumber,
                                             HasVotedOrAbstained=False,
                                             VotingPassword=hashed_password,
-                                            created_at=datetime.now(), 
-                                            updated_at=datetime.now())
+                                            created_at=manila_now, 
+                                            updated_at=manila_now)
                     db.add(new_eligible)
                     db.commit()
 
@@ -1573,8 +1586,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                                 StudentNumber=student.StudentNumber,
                                                 HasVotedOrAbstained=False,
                                                 VotingPassword=hashed_password,
-                                                created_at=datetime.now(), 
-                                                updated_at=datetime.now())
+                                                created_at=manila_now, 
+                                                updated_at=manila_now)
                         db.add(new_eligible)
                         db.commit()
 
@@ -1592,8 +1605,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
 async def save_Election_Position_Reusable(data: SaveReusablePositionData, db: Session = Depends(get_db)):
     capitalized_first_letter = data.name.capitalize()
     new_position = SavedPosition(PositionName=capitalized_first_letter,
-                                            created_at=datetime.now(),
-                                            updated_at=datetime.now())
+                                            created_at=manila_now,
+                                            updated_at=manila_now)
     db.add(new_position)
     db.commit()
 
@@ -1721,8 +1734,8 @@ async def save_Announcement(type_select: str = Form(...), title_input: str = For
         AnnouncementBody=body_input,
         AttachmentType=type_of_attachment,
         AttachmentImage='',  # Initialize with an empty string
-        created_at=datetime.now(), 
-        updated_at=datetime.now()
+        created_at=manila_now, 
+        updated_at=manila_now
     )
 
     db.add(new_announcement)
@@ -1812,7 +1825,7 @@ async def update_Announcement(id_input: int = Form(...), type_select: str = Form
         original_announcement.AnnouncementTitle = title_input
         original_announcement.AnnouncementBody = body_input
         original_announcement.AttachmentType = type_of_attachment
-        original_announcement.updated_at = datetime.now()
+        original_announcement.updated_at = manila_now
 
         db.commit()
         
@@ -1903,8 +1916,8 @@ def save_Rule(rule_data: RuleSaveData, db: Session = Depends(get_db)):
     try:
         new_rule = Rule(RuleTitle=rule_data.title, 
                         RuleBody=rule_data.body, 
-                        created_at=datetime.now(), 
-                        updated_at=datetime.now())
+                        created_at=manila_now, 
+                        updated_at=manila_now)
         db.add(new_rule)
         db.commit()
         return {"id": new_rule.RuleId,
@@ -1929,7 +1942,7 @@ def update_Rule(rule_data: RuleUpdateData, db: Session = Depends(get_db)):
         # Update the rule's title and body
         rule.RuleTitle = rule_data.title
         rule.RuleBody = rule_data.body
-        rule.updated_at = datetime.now()
+        rule.updated_at = manila_now
         
         db.commit()
 
@@ -2000,8 +2013,8 @@ def save_Guideline(guideline_data: GuidelineSaveData, db: Session = Depends(get_
     try:
         new_guideline = Guideline(GuidelineTitle=guideline_data.title, 
                                 GuidelineBody=guideline_data.body, 
-                                created_at=datetime.now(), 
-                                updated_at=datetime.now())
+                                created_at=manila_now, 
+                                updated_at=manila_now)
         db.add(new_guideline)
         db.commit()
         return {"id": new_guideline.GuideId,
@@ -2026,7 +2039,7 @@ def update_Guideline(guideline_data: GuidelineUpdateData, db: Session = Depends(
         # Update the guideline's title and body
         guideline.GuidelineTitle = guideline_data.title
         guideline.GuidelineBody = guideline_data.body
-        guideline.updated_at = datetime.now()
+        guideline.updated_at = manila_now
         
         db.commit()
 
@@ -2179,8 +2192,8 @@ def create_Certification(certification_data: CertificationData, db: Session = De
                                             Date=certification_data.date,
                                             AdminSignatoryQuantity=certification_data.quantity,
                                             AssetId='', # Initialize first
-                                            created_at=datetime.now(),
-                                            updated_at=datetime.now())
+                                            created_at=manila_now,
+                                            updated_at=manila_now)
         db.add(new_certification)
         db.commit()
 
@@ -2188,13 +2201,13 @@ def create_Certification(certification_data: CertificationData, db: Session = De
             new_signatory = CreatedAdminSignatory(CertificationId=new_certification.CertificationId,
                                         SignatoryName=signatory.name,
                                         SignatoryPosition=signatory.position,
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
             db.add(new_signatory)
             db.commit()
 
         # Create the PDF
-        now = datetime.now()
+        now = manila_now
         pdf_name = f"Report_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
         doc = SimpleDocTemplate(pdf_name, pagesize=letter, topMargin=36)
 
@@ -2405,8 +2418,8 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
     
-    if election.CoCFilingStart > datetime.now() or election.CoCFilingEnd < datetime.now():
-        print("Time now:" + str(datetime.now()))
+    if election.CoCFilingStart > manila_now or election.CoCFilingEnd < manila_now:
+        print("Time now:" + str(manila_now))
         print("Start:" + str(election.CoCFilingStart))
         print("End:" + str(election.CoCFilingEnd))
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
@@ -2422,7 +2435,7 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         return JSONResponse(status_code=400, content={"error": "You are not eligible to file a CoC for this election."})
 
     # Check if verification code is correct in code table and is not expired
-    code = db.query(Code).filter(Code.StudentNumber == student_number, Code.CodeType == 'Verification', Code.CodeValue == verification_code, Code.CodeExpirationDate > datetime.now()).first()
+    code = db.query(Code).filter(Code.StudentNumber == student_number, Code.CodeType == 'Verification', Code.CodeValue == verification_code, Code.CodeExpirationDate > manila_now).first()
     if not code:
         return JSONResponse(status_code=400, content={"error": "Verification code is invalid or has expired."})
     
@@ -2460,8 +2473,8 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
                     DisplayPhoto='',
                     CertificationOfGrades='',
                     Status='Pending',
-                    created_at=datetime.now(),
-                    updated_at=datetime.now())
+                    created_at=manila_now,
+                    updated_at=manila_now)
     db.add(new_coc)
     db.flush() # Flush the session to get the ID of the new CoC
 
@@ -2535,7 +2548,7 @@ async def accept_CoC(id: int, db: Session = Depends(get_db)):
             return JSONResponse(status_code=404, content={"detail": "CoC not found"})
 
         coc.Status = 'Approved'
-        coc.updated_at = datetime.now()
+        coc.updated_at = manila_now
 
         db.commit()
 
@@ -2545,8 +2558,8 @@ async def accept_CoC(id: int, db: Session = Depends(get_db)):
                                     PartyListId=coc.PartyListId,
                                     SelectedPositionName=coc.SelectedPositionName,
                                     DisplayPhoto=coc.DisplayPhoto,
-                                    created_at=datetime.now(),
-                                    updated_at=datetime.now())
+                                    created_at=manila_now,
+                                    updated_at=manila_now)
         
         db.add(new_candidate)
         db.commit()
@@ -2572,7 +2585,7 @@ async def reject_CoC(id: int, db: Session = Depends(get_db)):
             return JSONResponse(status_code=404, content={"detail": "CoC not found"})
 
         coc.Status = 'Rejected'
-        coc.updated_at = datetime.now()
+        coc.updated_at = manila_now
 
         db.commit()
 
@@ -2619,16 +2632,16 @@ def generate_Coc_Verification_Code(code_for_student:CodeForStudent, db: Session 
     if existing_code_type:
         # If a code already exists for this student, update it
         existing_code_type.CodeValue = code_value
-        existing_code_type.CodeExpirationDate = datetime.now() + timedelta(minutes=30)
-        existing_code_type.updated_at = datetime.now()
+        existing_code_type.CodeExpirationDate = manila_now + timedelta(minutes=30)
+        existing_code_type.updated_at = manila_now
     else:
         # If no code exists for this student, create a new one
         new_code = Code(StudentNumber=code_for_student.student_number, 
                         CodeValue=code_value,
                         CodeType=code_for_student.code_type,
-                        CodeExpirationDate=datetime.now() + timedelta(minutes=30),
-                        created_at=datetime.now(),
-                        updated_at=datetime.now())
+                        CodeExpirationDate=manila_now + timedelta(minutes=30),
+                        created_at=manila_now,
+                        updated_at=manila_now)
         db.add(new_code)
 
     # Commit the session to save the changes in the database
@@ -2679,17 +2692,17 @@ def generate_Ratings_Verification_Code(code_for_student:CodeForStudent, db: Sess
     if existing_code_type:
         # If a code already exists for this student, update it
         existing_code_type.CodeValue = code_value
-        existing_code_type.CodeExpirationDate = datetime.now() + timedelta(minutes=30)
-        existing_code_type.updated_at = datetime.now()
+        existing_code_type.CodeExpirationDate = manila_now + timedelta(minutes=30)
+        existing_code_type.updated_at = manila_now
 
     else:
         # If no code exists for this student, create a new one
         new_code = Code(StudentNumber=code_for_student.student_number, 
                         CodeValue=code_value,
                         CodeType=code_for_student.code_type,
-                        CodeExpirationDate=datetime.now() + timedelta(minutes=30),
-                        created_at=datetime.now(),
-                        updated_at=datetime.now())
+                        CodeExpirationDate=manila_now + timedelta(minutes=30),
+                        created_at=manila_now,
+                        updated_at=manila_now)
         db.add(new_code)
 
     # Commit the session to save the changes in the database
@@ -2708,7 +2721,7 @@ def generate_Ratings_Verification_Code(code_for_student:CodeForStudent, db: Sess
 @router.post("/code/ratings/verify/{code}/{type}", tags=["Code"])
 def verify_Ratings_Code(code: str, type: str, db: Session = Depends(get_db)):
     # Check if the code exists in the database
-    code = db.query(Code).filter(Code.CodeValue == code, Code.CodeType == type, Code.CodeExpirationDate > datetime.now()).first()
+    code = db.query(Code).filter(Code.CodeValue == code, Code.CodeType == type, Code.CodeExpirationDate > manila_now).first()
 
     if not code:
         return JSONResponse(status_code=404, content={"error": "Code does not exist or has expired"})
@@ -2899,7 +2912,7 @@ async def save_PartyList(election_id: int = Form(...), party_name: str = Form(..
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
 
-    if election.CoCFilingStart > datetime.now() or election.CoCFilingEnd < datetime.now():
+    if election.CoCFilingStart > manila_now or election.CoCFilingEnd < manila_now:
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     new_partylist = PartyList(ElectionId=election_id,
@@ -2913,8 +2926,8 @@ async def save_PartyList(election_id: int = Form(...), party_name: str = Form(..
                             ImageAttachment='' if image_attachment else None,  # Initialize with an empty string
                             VideoAttachment=video_attachment,
                             Status='Pending',
-                            created_at=datetime.now(), 
-                            updated_at=datetime.now())
+                            created_at=manila_now, 
+                            updated_at=manila_now)
     db.add(new_partylist)
     db.commit()
 
@@ -2972,7 +2985,7 @@ async def accept_PartyList(id: int, db: Session = Depends(get_db)):
             return JSONResponse(status_code=404, content={"detail": "Partylist not found"})
 
         partylist.Status = 'Approved'
-        partylist.updated_at = datetime.now()
+        partylist.updated_at = manila_now
 
         db.commit()
 
@@ -2994,7 +3007,7 @@ async def reject_PartyList(id: int, db: Session = Depends(get_db)):
             return JSONResponse(status_code=404, content={"detail": "Partylist not found"})
 
         partylist.Status = 'Rejected'
-        partylist.updated_at = datetime.now()
+        partylist.updated_at = manila_now
 
         db.commit()
 
@@ -3187,7 +3200,7 @@ def save_Candidate_Ratings(rating_list: RatingList, db: Session = Depends(get_db
     election = db.query(Election).filter(Election.ElectionId == rating_list.election_id).first()
 
     # check for ended campaign period only 
-    if election.CampaignEnd < datetime.now():
+    if election.CampaignEnd < manila_now:
         return JSONResponse(status_code=400, content={"error": "Rating/Campaign period for this election has ended."})
 
     # Check if the student has already rated this election
@@ -3234,15 +3247,15 @@ def save_Candidate_Ratings(rating_list: RatingList, db: Session = Depends(get_db
         if rating.rating > 0:
             candidate.TimesRated += 1
             
-        candidate.updated_at = datetime.now()
+        candidate.updated_at = manila_now
 
         db.commit()
 
     # Add a new record in the RatingsTracker table
     new_rating = RatingsTracker(StudentNumber=rating_list.rater_student_number,
                                         ElectionId=rating_list.election_id,
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
 
     db.add(new_rating)
     db.commit()
@@ -3346,7 +3359,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
     election = db.query(Election).filter(Election.ElectionId == votes_list.election_id).first()
 
     # check for ended voting period only 
-    if election.VotingEnd < datetime.now():
+    if election.VotingEnd < manila_now:
         return JSONResponse(status_code=400, content={"error": "Voting period for this election has ended."})
 
     # Check if the student has already voted this election
@@ -3362,7 +3375,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
 
             # +1 the abstaincount in ElectionAnalytics table
             election_analytics.AbstainCount += 1
-            election_analytics.updated_at = datetime.now()
+            election_analytics.updated_at = manila_now
 
             # +1 the timesabstained of all candidates on that position in Candidates table
 
@@ -3378,7 +3391,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
             # Increment the timesabstained of all candidates with the same selected position name and election id
             for candidate in candidates:
                 candidate.TimesAbstained += 1
-                candidate.updated_at = datetime.now()
+                candidate.updated_at = manila_now
             
         else:
             # Get the candidate id via candidate student number
@@ -3393,17 +3406,17 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
                                         VotedCandidateId=candidate.CandidateId,
                                         CourseId=get_course_id.CourseId,
                                         ElectionId=votes_list.election_id,
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
             
             # Increment the number of votes of the candidate by votes received
             candidate.Votes += 1
-            candidate.updated_at = datetime.now()
+            candidate.updated_at = manila_now
 
             # +1 the vote count in ElectionAnalytics table
             election_analytics = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == votes_list.election_id).first()
             election_analytics.VotesCount += 1
-            election_analytics.updated_at = datetime.now()
+            election_analytics.updated_at = manila_now
             
             db.add(new_vote)
 
@@ -3478,7 +3491,7 @@ def gather_winners_by_election_id(election_id: int):
     # Get the number of eligible voters in Eligibles by election id
     num_eligible_voters = db.query(Eligibles).filter_by(ElectionId=election.ElectionId).count()
 
-    if datetime.now() > election.VotingEnd:
+    if manila_now > election.VotingEnd:
         # Store the winners in the ElectionWinners table
         for position, candidates in candidates_per_position.items():
             # If there's exactly one candidate for this position, check if the candidate has achieved the required vote threshold
@@ -3492,8 +3505,8 @@ def gather_winners_by_election_id(election_id: int):
                                             SelectedPositionName=position,
                                             Votes=candidates[0].Votes,
                                             IsTied=False,
-                                            created_at=datetime.now(),
-                                            updated_at=datetime.now())
+                                            created_at=manila_now,
+                                            updated_at=manila_now)
                     db.add(winner)
             else:  # There's more than one candidate for this position
                 # The candidates with the highest votes win
@@ -3509,8 +3522,8 @@ def gather_winners_by_election_id(election_id: int):
                                             SelectedPositionName=position,
                                             Votes=winner_candidate.Votes,
                                             IsTied=is_tied,
-                                            created_at=datetime.now(),
-                                            updated_at=datetime.now())
+                                            created_at=manila_now,
+                                            updated_at=manila_now)
                     db.add(winner)
 
         db.commit()
@@ -3673,8 +3686,8 @@ def save_Election_Appeals(election_appeals_data: ElectionAppealsData, db: Sessio
     new_appeal = ElectionAppeals(StudentNumber=election_appeals_data.student_number,
                                         AppealDetails=election_appeals_data.appeal_details,
                                         AppealStatus='Pending',
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
     
     db.add(new_appeal)
     db.commit()
@@ -3708,7 +3721,7 @@ def save_Election_Appeals_Respond(data: ElectionAppealsRespondData, background_t
     appeal.AppealEmailSubject = data.subject
     appeal.AppealResponse = data.response
     appeal.AppealStatus = 'Responded'
-    appeal.updated_at = datetime.now()
+    appeal.updated_at = manila_now
 
     db.commit()
 
@@ -3746,7 +3759,7 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     election_data['SchoolYear'] = election.SchoolYear
     election_data['CourseRequirement'] = student_organization.OrganizationMemberRequirements
 
-    now = datetime.now()
+    now = manila_now
     if now < election.CoCFilingStart:
         election_data["ElectionPeriod"] = "Pre-Election"
     elif now >= election.CoCFilingStart and now <= election.CoCFilingEnd:
