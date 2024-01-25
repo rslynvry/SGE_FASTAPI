@@ -2406,6 +2406,9 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
     
     if election.CoCFilingStart > datetime.now() or election.CoCFilingEnd < datetime.now():
+        print("Time now:" + str(datetime.now()))
+        print("Start:" + str(election.CoCFilingStart))
+        print("End:" + str(election.CoCFilingEnd))
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     # Check if the student exists in the database
