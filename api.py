@@ -845,17 +845,18 @@ def student_Voting_Login(data: LoginData, db: Session = Depends(get_db)):
     student = db.query(Eligibles).filter(Eligibles.StudentNumber == StudentNumber).first()
     if not student:
         return {"error": "Student not found."}
-
-    # Check if the password matches
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-    if not pwd_context.verify(Password, student.VotingPassword):
-        return {"error": "Incorrect password."}
-
-    student_id = db.query(Student).filter(Student.StudentNumber == StudentNumber).first()
-    student_id = student_id.StudentId
     
-    return {"message": True,
-            "student_id": student_id}
+    # Loop over students in eligibles table and check each password
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    for student in db.query(Eligibles).filter(Eligibles.StudentNumber == StudentNumber).all():
+        if pwd_context.verify(Password, student.VotingPassword):
+            student_id = db.query(Student).filter(Student.StudentNumber == StudentNumber).first()
+            student_id = student_id.StudentId
+            
+            return {"message": True,
+                    "student_id": student_id}
+
+    return {"error": "Incorrect password."}
 
 @router.post("/student/election-management/login", tags=["Student"])
 def student_Election_Management_Login(data: LoginData, db: Session = Depends(get_db)):
@@ -945,6 +946,16 @@ def get_Student_Organization(student_organization_id: int, db: Session = Depends
     except Exception as e:
         print(f"Error fetching image from Cloudinary: {e}")
         adviser_image = ""
+
+    # Get organization image in cloudinary using tag
+    try:
+        get_image = resources_by_tag(student_organization["OrganizationLogo"])
+        organization_logo = get_image["resources"][0]["secure_url"] if get_image else ""
+    except Exception as e:
+        print(f"Error fetching image from Cloudinary: {e}")
+        organization_logo = ""
+
+    student_organization["OrganizationLogo"] = organization_logo
 
     student_organization["AdviserImage"] = adviser_image
 
@@ -1243,9 +1254,9 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         candidates = db.query(Candidates).filter(Candidates.ElectionId == election.ElectionId).all()
         election_dict["NumberOfCandidates"] = len(candidates)
         
-        # Get the number of partylists in the election
-        partylits = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId).all()
-        election_dict["NumberOfPartylists"] = len(partylits)
+        # Get the number of partylists in the election who is approved
+        partylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approve').all()
+        election_dict["NumberOfPartylists"] = len(partylists)
 
         # Get the number of positions in the election
         positions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election.ElectionId).all()
@@ -1353,7 +1364,7 @@ def get_Election_By_Id(id: int, db: Session = Depends(get_db)):
             organization_logo = ""
 
         NumberOfCandidates = db.query(Candidates).filter(Candidates.ElectionId == election.ElectionId).count()
-        NumberOfPartylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId).count()
+        NumberOfPartylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approved').count()
         NumberOfPositions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election.ElectionId).count()
 
         positions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == id).order_by(CreatedElectionPosition.CreatedElectionPositionId).all()
@@ -2201,7 +2212,7 @@ def create_Certification(certification_data: CertificationData, db: Session = De
         styles.add(ParagraphStyle(name="ParagraphStyle2", fontName="Times-Roman", fontSize=12, alignment=TA_LEFT, spaceAfter=6, leading=12))
 
         # Add the logo
-        logo = Image("puplogo.png", width=100, height=100)  # Adjust the path and size as needed
+        logo = Image("puplogo.png", width=80, height=80)  # Adjust the path and size as needed
         elements.append(logo)
         elements.append(Spacer(1, 12))
 
@@ -2209,7 +2220,7 @@ def create_Certification(certification_data: CertificationData, db: Session = De
         elements.append(school)
         elements.append(Spacer(1, 2))
 
-        branch = Paragraph("QUEZON CITY BRANCH", styles["BranchStyle"])
+        branch = Paragraph("QUEZON CITY CAMPUS", styles["BranchStyle"])
         elements.append(branch)
         elements.append(Spacer(1, 12))
 
@@ -3240,6 +3251,7 @@ def save_Candidate_Ratings(rating_list: RatingList, db: Session = Depends(get_db
 
 class Votes(BaseModel):
     candidate_student_number: str
+    position: Optional[str] = None
 
 class VotesList(BaseModel):
     election_id: int
@@ -3350,15 +3362,52 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
             election_analytics.updated_at = datetime.now()
 
             # +1 the timesabstained of all candidates on that position in Candidates table
-            """candidates = db.query(Candidates).filter(Candidates.ElectionId == votes_list.election_id, Candidates.SelectedPositionName == vote.position_name).all()
+
+            # Get first the candidate selected position name via candidate student number
+            # Once we have the selected position name, we can get all candidates with the same selected position name
+            # Then we can increment the timesabstained of all candidates with the same selected position name and election id
+            selected_position_name = vote.position  # Get the position from the vote object
+            candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == selected_position_name, Candidates.ElectionId == votes_list.election_id).all()
+
+            # Get all candidates with the same selected position name and election id
+            candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == selected_position_name, Candidates.ElectionId == votes_list.election_id).all()
+
+            # Increment the timesabstained of all candidates with the same selected position name and election id
             for candidate in candidates:
                 candidate.TimesAbstained += 1
-                candidate.updated_at = datetime.now()"""
+                candidate.updated_at = datetime.now()
+            
+        else:
+            # Get the candidate id via candidate student number
+            candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
+            
+            # Get the course id via voter student number then get the course id in the course table via course code
+            get_course_of_voter = get_Student_Course_by_studnumber(votes_list.voter_student_number, db)
+            get_course_id = db.query(Course).filter(Course.CourseCode == get_course_of_voter).first()
 
-            db.commit()
-            continue
+            # Add a new record in the VotingsTracker table per candidate voted
+            new_vote = VotingsTracker(VoterStudentNumber=votes_list.voter_student_number,
+                                        VotedCandidateId=candidate.CandidateId,
+                                        CourseId=get_course_id.CourseId,
+                                        ElectionId=votes_list.election_id,
+                                        created_at=datetime.now(),
+                                        updated_at=datetime.now())
+            
+            # Increment the number of votes of the candidate by votes received
+            candidate.Votes += 1
+            candidate.updated_at = datetime.now()
 
-        # Check if the student exists in the database
+            # +1 the vote count in ElectionAnalytics table
+            election_analytics = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == votes_list.election_id).first()
+            election_analytics.VotesCount += 1
+            election_analytics.updated_at = datetime.now()
+            
+            db.add(new_vote)
+
+        db.commit()
+        #continue
+
+        """# Check if the student exists in the database
         student = db.query(Student).filter(Student.StudentNumber == vote.candidate_student_number).first()
 
         if not student:
@@ -3374,23 +3423,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
         candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
 
         if not candidate:
-            return JSONResponse(status_code=404, content={"error": "Candidate does not exist"})
-
-        # Increment the number of votes of the candidate by votes received
-        candidate.Votes += 1
-        candidate.updated_at = datetime.now()
-
-        # +1 the vote count in ElectionAnalytics table
-        election_analytics.VotesCount += 1
-        election_analytics.updated_at = datetime.now()
-
-        db.commit()
-
-    # Add a new record in the VotingsTracker table
-    new_vote = VotingsTracker(StudentNumber=votes_list.voter_student_number,
-                                        ElectionId=votes_list.election_id,
-                                        created_at=datetime.now(),
-                                        updated_at=datetime.now())
+            return JSONResponse(status_code=404, content={"error": "Candidate does not exist"})"""
 
     db.add(new_vote)
     db.commit()
@@ -3578,7 +3611,7 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
 class ElectionAppealsData(BaseModel):
     student_number: str
     appeal_details: str
-    attachment: str
+    attachment: Optional[str] = Form(None)
 
 """ ElectionAppeals Table APIs """
 
@@ -3736,18 +3769,29 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     num_voters = db.query(Eligibles).filter(Eligibles.ElectionId == id).count()
     election_data['NumberOfVoters'] = num_voters
 
-    # Count all voters who voted for this election
-    active_voters = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id).count()
+    # Count all voters who voted for this election unique by student number
+    active_voters = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id).distinct(VotingsTracker.VoterStudentNumber).count()
     election_data['NumberOfActiveVoters'] = active_voters
-
+    
     # Count all voters who did not vote for this election
     inactive_voters = num_voters - active_voters
     election_data['NumberOfInactiveVoters'] = inactive_voters
 
     # Count each voters course distribution for this election
-    # course_distribution = db.query(Student.Course, func.count(Student.Course)).filter(Student.Course == student_organization.OrganizationMemberRequirements).group_by(Student.Course).all()
-    # course_distribution_dict = [{course: count} for course, count in course_distribution]
-    # election_data['CourseDistribution'] = course_distribution_dict
+    # Insert all coursecode in course table as key
+    course_distribution = {}
+    courses = db.query(Course).all()
+    for course in courses:
+        course_distribution[course.CourseCode] = 0
+
+    # Count all in votingstracker table with election id and determine the coursecode via course id unique by student number
+    votes_per_course = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id).distinct(VotingsTracker.VoterStudentNumber).all()
+    for vote in votes_per_course:
+        # Increment coursecode count via course id
+        course = db.query(Course).filter(Course.CourseId == vote.CourseId).first()
+        course_distribution[course.CourseCode] += 1
+
+    election_data['CourseDistribution'] = course_distribution
 
     # Count approved and rejected coc
     approved_coc = db.query(CoC).filter(CoC.ElectionId == id, CoC.Status == 'Approved').count()
@@ -3803,23 +3847,64 @@ def get_Reports_By_Election_Id_And_Candidate_StudentNumber(election_id: int, stu
     else:
         coc_dict["PartyListName"] = "Independent"
 
-    # (SOON) Get candidate course, year and section
+    # Get candidate course, year and section
+    course = ""
+    year = ""
+    section = ""
+
+    get_student_metadata = get_Student_Metadata_by_studnumber(student_number)
+    get_student_section = get_Student_Section_by_studnumber(student_number)
+
+    if "CourseCode" in get_student_metadata:
+        course = get_student_metadata["CourseCode"]
+        year = get_student_metadata["Year"]
+
+    if get_student_section:
+        section = get_student_section
+
+    coc_dict["CourseYearSection"] = f"{course} {year}-{section}"
 
     # Get the motto 
     coc_dict["Motto"] = coc.Motto
 
-    # (SOON) Get candidate platform
+    # Get candidate platform
+    coc_dict["Platform"] = coc.Platform
 
     # Get candidate votes 
     candidate = db.query(Candidates).filter(Candidates.ElectionId == election_id, Candidates.StudentNumber == student_number).first()
     coc_dict["Votes"] = candidate.Votes
 
-    # (SOON) Get candidate abstains
+    # Get candidate abstains
     coc_dict["Abstains"] = candidate.TimesAbstained
 
-    # (SOON) Get votes per course (Can be specified by VotingTrackers table but course is not included in the table Student and structure will change so keep this for now)
+    # Get votes per course (Can be specified by VotingTrackers table but course is not included in the table Student and structure will change so keep this for now)
+    candidate_id = candidate.CandidateId
 
-    # (SOON) Get candidate ratings
+    # loop in votingstracker to get the votes per course with corresponing election id and votedcandidate id unique by student number
+    votes_per_course = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == election_id, VotingsTracker.VotedCandidateId == candidate_id).distinct(VotingsTracker.VoterStudentNumber).all()
+    
+    # Make a dict and insert all coursecode in course table as key and initialize the value to 0
+    course_dict = {}
+    courses = db.query(Course).all()
+    for course in courses:
+        course_dict[course.CourseCode] = 0
+
+    # Loop in votes_per_course and increment the value of coursecode key in course_dict
+    for vote in votes_per_course:
+        # Get the courscode via courseid
+        course = db.query(Course).filter(Course.CourseId == vote.CourseId).first()
+        course_code = course.CourseCode
+
+        course_dict[course_code] += 1
+
+    coc_dict["VotesPerCourse"] = course_dict
+
+    # Get candidate ratings
+    coc_dict["OneStar"] = candidate.OneStar
+    coc_dict["TwoStar"] = candidate.TwoStar
+    coc_dict["ThreeStar"] = candidate.ThreeStar
+    coc_dict["FourStar"] = candidate.FourStar
+    coc_dict["FiveStar"] = candidate.FiveStar
     
     return {"candidate": coc_dict}
 
