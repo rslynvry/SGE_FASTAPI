@@ -2433,9 +2433,9 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         return JSONResponse(status_code=400, content={"error": "You are not eligible to file a CoC for this election."})
 
     # Check if verification code is correct in code table and is not expired
-    code = db.query(Code).filter(Code.StudentNumber == student_number, Code.CodeType == 'Verification', Code.CodeValue == verification_code, Code.CodeExpirationDate > manila_now).first()
+    code = db.query(Code).filter(Code.StudentNumber == student_number, Code.CodeType == 'Verification', Code.CodeValue == verification_code).first()
     if not code:
-        return JSONResponse(status_code=400, content={"error": "Verification code is invalid or has expired."})
+        return JSONResponse(status_code=400, content={"error": "Verification code is invalid."})
     
     # Check if the student has already filed a CoC for this election and not rejected
     coc = db.query(CoC).filter(CoC.ElectionId == election_id, CoC.StudentNumber == student_number, CoC.Status != 'Rejected').first()
@@ -2719,10 +2719,10 @@ def generate_Ratings_Verification_Code(code_for_student:CodeForStudent, db: Sess
 @router.post("/code/ratings/verify/{code}/{type}", tags=["Code"])
 def verify_Ratings_Code(code: str, type: str, db: Session = Depends(get_db)):
     # Check if the code exists in the database
-    code = db.query(Code).filter(Code.CodeValue == code, Code.CodeType == type, Code.CodeExpirationDate > manila_now).first()
+    code = db.query(Code).filter(Code.CodeValue == code, Code.CodeType == type).first()
 
     if not code:
-        return JSONResponse(status_code=404, content={"error": "Code does not exist or has expired"})
+        return JSONResponse(status_code=404, content={"error": "Code is invalid."})
     
     # remove the code from the database
     if code:
@@ -2910,7 +2910,7 @@ async def save_PartyList(election_id: int = Form(...), party_name: str = Form(..
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
 
-    if election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) > manila_now or election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
+    if manila_now > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     new_partylist = PartyList(ElectionId=election_id,
@@ -3198,7 +3198,7 @@ def save_Candidate_Ratings(rating_list: RatingList, db: Session = Depends(get_db
     election = db.query(Election).filter(Election.ElectionId == rating_list.election_id).first()
 
     # check for ended campaign period only 
-    if election.CampaignEnd < manila_now:
+    if manila_now > election.CampaignEnd.replace(tzinfo=timezone('Asia/Manila')):
         return JSONResponse(status_code=400, content={"error": "Rating/Campaign period for this election has ended."})
 
     # Check if the student has already rated this election
@@ -3357,7 +3357,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
     election = db.query(Election).filter(Election.ElectionId == votes_list.election_id).first()
 
     # check for ended voting period only 
-    if election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
+    if manila_now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
         return JSONResponse(status_code=400, content={"error": "Voting period for this election has ended."})
 
     # Check if the student has already voted this election
