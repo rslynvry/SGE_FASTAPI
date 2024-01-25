@@ -221,7 +221,7 @@ def create_student_set_as_comelec():
         Position="President",
         created_at="2024-01-17 23:53:29.417",
         updated_at="2024-01-17 23:53:29.417")
-    
+        
     db.add(comelec)
     db.commit()
 
@@ -1280,15 +1280,15 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
 
         # Determine what election period
         now = manila_now
-        if now < election.CoCFilingStart:
+        if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Pre-Election"
-        elif now >= election.CoCFilingStart and now <= election.CoCFilingEnd:
+        elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Filing Period"
-        elif now >= election.CampaignStart and now <= election.CampaignEnd:
+        elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CampaignEnd:
             election_dict["ElectionPeriod"] = "Campaign Period"
-        elif now >= election.VotingStart and now <= election.VotingEnd:
+        elif now >= election.VotingStart and now <= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Voting Period"
-        elif now >= election.AppealStart and now <= election.AppealEnd:
+        elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Appeal Period"
         else:
             election_dict["ElectionPeriod"] = "Post-Election"
@@ -1329,7 +1329,7 @@ def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends
             election_dict["OrganizationLogo"] = ""
 
         # Check if voting period is over
-        if now >= election.VotingEnd:
+        if now >= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["IsVotingPeriodOver"] = True
         else:
             election_dict["IsVotingPeriodOver"] = False
@@ -1343,7 +1343,7 @@ def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends
             election_dict["IsStudentEligible"] = True
 
         # Check if the student's course matches the OrganizationMemberRequirement and it's within the voting period
-        if student_course == election_dict["OrganizationMemberRequirement"] and is_eligible and now >= election.VotingStart and now < election.VotingEnd:
+        if student_course == election_dict["OrganizationMemberRequirement"] and is_eligible and now >= election.VotingStart and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             atleast_one_available_election = True
 
         # Check if the student has voted in the election
@@ -1594,7 +1594,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                         await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
     # Schedule the get_winners function to run at election.VotingEnd
-    trigger = DateTrigger(run_date=new_election.VotingEnd)
+    trigger = DateTrigger(run_date=new_election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')))
     scheduler.add_job(gather_winners_by_election_id, trigger=trigger, id=f'gather_winners_{new_election.ElectionId}', args=[new_election.ElectionId])
 
     return {"message": "Election created successfully",
@@ -2418,10 +2418,8 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
     
-    if election.CoCFilingStart > manila_now or election.CoCFilingEnd < manila_now:
-        print("Time now:" + str(manila_now))
-        print("Start:" + str(election.CoCFilingStart))
-        print("End:" + str(election.CoCFilingEnd))
+    if election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) > manila_now or election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
+
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     # Check if the student exists in the database
@@ -2912,7 +2910,7 @@ async def save_PartyList(election_id: int = Form(...), party_name: str = Form(..
     # Check if current datetime is within the filing period of the election
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
 
-    if election.CoCFilingStart > manila_now or election.CoCFilingEnd < manila_now:
+    if election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) > manila_now or election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     new_partylist = PartyList(ElectionId=election_id,
@@ -3338,7 +3336,7 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
             student_organization_logo_url = ""
 
         # Return the VotingEnd
-        voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd
+        voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd.replace(tzinfo=timezone('Asia/Manila'))
 
         return {
             "results": results,
@@ -3359,7 +3357,7 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
     election = db.query(Election).filter(Election.ElectionId == votes_list.election_id).first()
 
     # check for ended voting period only 
-    if election.VotingEnd < manila_now:
+    if election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')) < manila_now:
         return JSONResponse(status_code=400, content={"error": "Voting period for this election has ended."})
 
     # Check if the student has already voted this election
@@ -3491,7 +3489,7 @@ def gather_winners_by_election_id(election_id: int):
     # Get the number of eligible voters in Eligibles by election id
     num_eligible_voters = db.query(Eligibles).filter_by(ElectionId=election.ElectionId).count()
 
-    if manila_now > election.VotingEnd:
+    if manila_now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
         # Store the winners in the ElectionWinners table
         for position, candidates in candidates_per_position.items():
             # If there's exactly one candidate for this position, check if the candidate has achieved the required vote threshold
@@ -3760,15 +3758,15 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     election_data['CourseRequirement'] = student_organization.OrganizationMemberRequirements
 
     now = manila_now
-    if now < election.CoCFilingStart:
+    if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Pre-Election"
-    elif now >= election.CoCFilingStart and now <= election.CoCFilingEnd:
+    elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Filing Period"
-    elif now >= election.CampaignStart and now <= election.CampaignEnd:
+    elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CampaignEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Campaign Period"
-    elif now >= election.VotingStart and now <= election.VotingEnd:
+    elif now >= election.VotingStart and now <= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Voting Period"
-    elif now >= election.AppealStart and now <= election.AppealEnd:
+    elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Appeal Period"
     else:
         election_data["ElectionPeriod"] = "Post-Election"
