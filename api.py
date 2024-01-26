@@ -1594,7 +1594,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
 
     # Schedule the get_winners function to run at election.VotingEnd
     try:
-        trigger = DateTrigger(run_date=new_election.VotingEnd)
+        trigger = DateTrigger(run_date=new_election.VotingEnd, timezone=timezone('Asia/Manila'))
         scheduler.add_job(gather_winners_by_election_id, trigger=trigger, id=f'gather_winners_{new_election.ElectionId}', args=[new_election.ElectionId])
         print("Scheduled!")
     except Exception as e:
