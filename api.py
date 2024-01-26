@@ -1593,8 +1593,12 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                         await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
     # Schedule the get_winners function to run at election.VotingEnd
-    trigger = DateTrigger(run_date=new_election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')))
-    scheduler.add_job(gather_winners_by_election_id, trigger=trigger, id=f'gather_winners_{new_election.ElectionId}', args=[new_election.ElectionId])
+    try:
+        trigger = DateTrigger(run_date=new_election.VotingEnd)
+        scheduler.add_job(gather_winners_by_election_id, trigger=trigger, id=f'gather_winners_{new_election.ElectionId}', args=[new_election.ElectionId])
+        print("Scheduled!")
+    except Exception as e:
+        print(f"Error while scheduling: {e}")
 
     return {"message": "Election created successfully",
             "election_id": new_election.ElectionId,}
@@ -3469,42 +3473,46 @@ def gather_winners_by_election_id(election_id: int):
     # Get the number of eligible voters in Eligibles by election id
     num_eligible_voters = db.query(Eligibles).filter_by(ElectionId=election.ElectionId).count()
 
-    if manila_now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
-        # Store the winners in the ElectionWinners table
-        for position, candidates in candidates_per_position.items():
-            # If there's exactly one candidate for this position, check if the candidate has achieved the required vote threshold
-            if num_candidates_per_position[position] == 1:
-                # Calculate the vote threshold
-                vote_threshold = (num_eligible_voters // 2) + 1  # 50% students + 1 vote constraint
+    #if manila_now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
+    # Store the winners in the ElectionWinners table
+    print("Adding winners to the ElectionWinners table...")
 
-                if candidates[0].Votes >= vote_threshold:
-                    winner = ElectionWinners(ElectionId=election.ElectionId, 
-                                            StudentNumber=candidates[0].StudentNumber, 
-                                            SelectedPositionName=position,
-                                            Votes=candidates[0].Votes,
-                                            IsTied=False,
-                                            created_at=manila_now,
-                                            updated_at=manila_now)
-                    db.add(winner)
-            else:  # There's more than one candidate for this position
-                # The candidates with the highest votes win
-                max_votes = max(candidate.Votes for candidate in candidates)
+    for position, candidates in candidates_per_position.items():
+        # If there's exactly one candidate for this position, check if the candidate has achieved the required vote threshold
 
-                if max_votes > 0:
-                    winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
+        print("Im heree")
+        if num_candidates_per_position[position] == 1:
+            # Calculate the vote threshold
+            vote_threshold = (num_eligible_voters // 2) + 1  # 50% students + 1 vote constraint
 
-                    # Check if there's a tie
-                    is_tied = len(winners) > num_winners_per_position[position]
+            if candidates[0].Votes >= vote_threshold:
+                winner = ElectionWinners(ElectionId=election.ElectionId, 
+                                        StudentNumber=candidates[0].StudentNumber, 
+                                        SelectedPositionName=position,
+                                        Votes=candidates[0].Votes,
+                                        IsTied=False,
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
+                db.add(winner)
+        else:  # There's more than one candidate for this position
+            # The candidates with the highest votes win
+            max_votes = max(candidate.Votes for candidate in candidates)
 
-                    for winner_candidate in winners:
-                        winner = ElectionWinners(ElectionId=election.ElectionId, 
-                                                StudentNumber=winner_candidate.StudentNumber, 
-                                                SelectedPositionName=position,
-                                                Votes=winner_candidate.Votes,
-                                                IsTied=is_tied,
-                                                created_at=manila_now,
-                                                updated_at=manila_now)
-                        db.add(winner)
+            #if max_votes > 0:
+            winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
+
+            # Check if there's a tie
+            is_tied = len(winners) > num_winners_per_position[position]
+
+            for winner_candidate in winners:
+                winner = ElectionWinners(ElectionId=election.ElectionId, 
+                                        StudentNumber=winner_candidate.StudentNumber, 
+                                        SelectedPositionName=position,
+                                        Votes=winner_candidate.Votes,
+                                        IsTied=is_tied,
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
+                db.add(winner)
 
         db.commit()
 
