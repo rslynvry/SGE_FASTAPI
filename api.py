@@ -1343,7 +1343,7 @@ def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends
             election_dict["IsStudentEligible"] = True
 
         # Check if the student's course matches the OrganizationMemberRequirement and it's within the voting period
-        if student_course == election_dict["OrganizationMemberRequirement"] and is_eligible and now >= election.VotingStart and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
+        if student_course == election_dict["OrganizationMemberRequirement"] and is_eligible and now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             atleast_one_available_election = True
 
         # Check if the student has voted in the election
@@ -3265,12 +3265,14 @@ def save_Candidate_Ratings(rating_list: RatingList, db: Session = Depends(get_db
 
 class Votes(BaseModel):
     candidate_student_number: str
-    position: Optional[str] = None
+    #position: Optional[str] = None
 
 class VotesList(BaseModel):
     election_id: int
     voter_student_number: str
     votes: List[Votes]
+    abstainList: List[str]
+
 
 """ VotingsTracker Table APIs """
 
@@ -3368,36 +3370,41 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
     
     election_analytics = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == votes_list.election_id).first()
 
+    for abstain in votes_list.abstainList:
+        # abstain list contains list of positions
+        # +1 all candidates who's position is in the abstain list and corresponding election id
+        candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == abstain, Candidates.ElectionId == votes_list.election_id).all()
+
+        for candidate in candidates:
+            candidate.TimesAbstained += 1
+            candidate.updated_at = manila_now
+
+            db.commit()
+
     for vote in votes_list.votes:
         if vote.candidate_student_number == 'abstain':
 
             # +1 the abstaincount in ElectionAnalytics table
             election_analytics.AbstainCount += 1
             election_analytics.updated_at = manila_now
-
-            # +1 the timesabstained of all candidates on that position in Candidates table
-
-            # Get first the candidate selected position name via candidate student number
-            # Once we have the selected position name, we can get all candidates with the same selected position name
-            # Then we can increment the timesabstained of all candidates with the same selected position name and election id
-            selected_position_name = vote.position  # Get the position from the vote object
-            candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == selected_position_name, Candidates.ElectionId == votes_list.election_id).all()
-
-            # Get all candidates with the same selected position name and election id
-            candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == selected_position_name, Candidates.ElectionId == votes_list.election_id).all()
-
-            # Increment the timesabstained of all candidates with the same selected position name and election id
-            for candidate in candidates:
-                candidate.TimesAbstained += 1
-                candidate.updated_at = manila_now
             
         else:
             # Get the candidate id via candidate student number
             candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
             
+            # Increment the number of votes of the candidate by votes received
+            candidate.Votes += 1
+            candidate.updated_at = manila_now
+
+        db.commit()
+
+    for vote in votes_list.votes:
+        if vote.candidate_student_number != 'abstain':
             # Get the course id via voter student number then get the course id in the course table via course code
             get_course_of_voter = get_Student_Course_by_studnumber(votes_list.voter_student_number, db)
             get_course_id = db.query(Course).filter(Course.CourseCode == get_course_of_voter).first()
+
+            candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
 
             # Add a new record in the VotingsTracker table per candidate voted
             new_vote = VotingsTracker(VoterStudentNumber=votes_list.voter_student_number,
@@ -3407,40 +3414,14 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
                                         created_at=manila_now,
                                         updated_at=manila_now)
             
-            # Increment the number of votes of the candidate by votes received
-            candidate.Votes += 1
-            candidate.updated_at = manila_now
-
+            db.add(new_vote)
+            
             # +1 the vote count in ElectionAnalytics table
             election_analytics = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == votes_list.election_id).first()
             election_analytics.VotesCount += 1
             election_analytics.updated_at = manila_now
             
-            db.add(new_vote)
-
-        db.commit()
-        #continue
-
-        """# Check if the student exists in the database
-        student = db.query(Student).filter(Student.StudentNumber == vote.candidate_student_number).first()
-
-        if not student:
-            return JSONResponse(status_code=404, content={"error": "Student number does not exist"})
-
-        # Check if the election exists in the database
-        election = db.query(Election).filter(Election.ElectionId == votes_list.election_id).first()
-
-        if not election:
-            return JSONResponse(status_code=404, content={"error": "Election does not exist"})
-
-        # Update the votes of the candidate in the Candidates table
-        candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
-
-        if not candidate:
-            return JSONResponse(status_code=404, content={"error": "Candidate does not exist"})"""
-
-    db.add(new_vote)
-    db.commit()
+            db.commit()
 
     return {"response": "success"}
 
