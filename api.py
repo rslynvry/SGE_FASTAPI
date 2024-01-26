@@ -557,7 +557,6 @@ def get_Student_Section(student_number: str, db: Session = Depends(get_db)):
     student_section = get_Student_Section_by_studnumber(student_number)
 
     return {"section": student_section}
-   
     
 """ ** POST Methods: All about students APIs ** """
 # Create a queue
@@ -3490,20 +3489,22 @@ def gather_winners_by_election_id(election_id: int):
             else:  # There's more than one candidate for this position
                 # The candidates with the highest votes win
                 max_votes = max(candidate.Votes for candidate in candidates)
-                winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
 
-                 # Check if there's a tie
-                is_tied = len(winners) > num_winners_per_position[position]
+                if max_votes > 0:
+                    winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
 
-                for winner_candidate in winners:
-                    winner = ElectionWinners(ElectionId=election.ElectionId, 
-                                            StudentNumber=winner_candidate.StudentNumber, 
-                                            SelectedPositionName=position,
-                                            Votes=winner_candidate.Votes,
-                                            IsTied=is_tied,
-                                            created_at=manila_now,
-                                            updated_at=manila_now)
-                    db.add(winner)
+                    # Check if there's a tie
+                    is_tied = len(winners) > num_winners_per_position[position]
+
+                    for winner_candidate in winners:
+                        winner = ElectionWinners(ElectionId=election.ElectionId, 
+                                                StudentNumber=winner_candidate.StudentNumber, 
+                                                SelectedPositionName=position,
+                                                Votes=winner_candidate.Votes,
+                                                IsTied=is_tied,
+                                                created_at=manila_now,
+                                                updated_at=manila_now)
+                        db.add(winner)
 
         db.commit()
 
