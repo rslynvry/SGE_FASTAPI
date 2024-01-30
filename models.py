@@ -683,7 +683,7 @@ class RatingsTracker(Base):
     __tablename__ = "SGERatingsTracker"
 
     RatingsTrackerId = Column(Integer, primary_key=True)
-    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'), unique=True)
+    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'))
     ElectionId = Column(Integer, ForeignKey('SGEElection.ElectionId'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

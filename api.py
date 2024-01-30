@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 
-from sqlalchemy import inspect, func, and_
+from sqlalchemy import inspect, func, and_, desc, asc
 from sqlalchemy.orm import Session
 
 from reportlab.lib.pagesizes import letter
@@ -1267,7 +1267,7 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         election_dict["NumberOfCandidates"] = len(candidates)
         
         # Get the number of partylists in the election who is approved
-        partylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approve').all()
+        partylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approved').all()
         election_dict["NumberOfPartylists"] = len(partylists)
 
         # Get the number of positions in the election
@@ -1281,15 +1281,20 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         now = manila_now
         if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Pre-Election"
-        elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+        if now > election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Filing Period"
-        elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CampaignEnd:
+
+        if now > election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Campaign Period"
-        elif now >= election.VotingStart and now <= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+        if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Voting Period"
-        elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+        if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Appeal Period"
-        else:
+
+        if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Post-Election"
 
         elections_with_creator.append(election_dict)
@@ -1662,7 +1667,8 @@ class AnnouncementDeleteData(BaseModel):
 @router.get("/announcement/all", tags=["Announcement"])
 def get_All_Announcement(include_images: Optional[bool] = False, db: Session = Depends(get_db)):
     try:
-        announcements = db.query(Announcement).order_by(Announcement.AnnouncementId).all() 
+        # Get by descending order
+        announcements = db.query(Announcement).order_by(desc(Announcement.AnnouncementId)).all()
         return {"announcements": [announcement.to_dict(i+1, include_images=include_images) for i, announcement in enumerate(announcements)]} # Return the row number as well
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching all announcements from the database"})
@@ -2608,6 +2614,7 @@ async def reject_CoC(id: int, db: Session = Depends(get_db)):
 
 """ Code Table APIs """
 class CodeForStudent(BaseModel):
+    election_id: int
     student_number: str
     code_type: str
 
@@ -2679,7 +2686,7 @@ def generate_Ratings_Verification_Code(code_for_student:CodeForStudent, db: Sess
         return JSONResponse(status_code=400, content={"error": "You have already generated a verification code"})
 
     # Check RatinsTracker table if the student has already submitted ratings
-    ratings_tracker = db.query(RatingsTracker).filter(RatingsTracker.StudentNumber == code_for_student.student_number).first()
+    ratings_tracker = db.query(RatingsTracker).filter(RatingsTracker.StudentNumber == code_for_student.student_number, RatingsTracker.ElectionId == code_for_student.election_id).first()
 
     if ratings_tracker:
         return JSONResponse(status_code=400, content={"error": "You have already submitted your ratings"})
@@ -3750,15 +3757,20 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     now = manila_now
     if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Pre-Election"
-    elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+    if now > election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Filing Period"
-    elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.CampaignEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+    if now > election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Campaign Period"
-    elif now >= election.VotingStart and now <= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+    if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Voting Period"
-    elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now <= election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+
+    if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Appeal Period"
-    else:
+
+    if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Post-Election"
 
     # Count all candidates for this election
