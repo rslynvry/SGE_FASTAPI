@@ -3505,21 +3505,21 @@ def gather_winners_by_election_id(election_id: int):
             # The candidates with the highest votes win
             max_votes = max(candidate.Votes for candidate in candidates)
 
-            #if max_votes > 0:
-            winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
+            if max_votes > 0:
+                winners = [candidate for candidate in candidates if candidate.Votes == max_votes]
 
-            # Check if there's a tie
-            is_tied = len(winners) > num_winners_per_position[position]
+                # Check if there's a tie
+                is_tied = len(winners) > num_winners_per_position[position]
 
-            for winner_candidate in winners:
-                winner = ElectionWinners(ElectionId=election.ElectionId, 
-                                        StudentNumber=winner_candidate.StudentNumber, 
-                                        SelectedPositionName=position,
-                                        Votes=winner_candidate.Votes,
-                                        IsTied=is_tied,
-                                        created_at=manila_now,
-                                        updated_at=manila_now)
-                db.add(winner)
+                for winner_candidate in winners:
+                    winner = ElectionWinners(ElectionId=election.ElectionId, 
+                                            StudentNumber=winner_candidate.StudentNumber, 
+                                            SelectedPositionName=position,
+                                            Votes=winner_candidate.Votes,
+                                            IsTied=is_tied,
+                                            created_at=manila_now,
+                                            updated_at=manila_now)
+                    db.add(winner)
 
         db.commit()
 

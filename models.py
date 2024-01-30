@@ -512,7 +512,7 @@ class OrganizationMember(Base):
 
     OrganizationMemberId = Column(Integer, primary_key=True)
     StudentOrganizationId = Column(Integer, ForeignKey('SGEStudentOrganization.StudentOrganizationId'))
-    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'), unique=True)
+    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
