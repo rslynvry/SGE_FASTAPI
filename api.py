@@ -1384,6 +1384,10 @@ def get_Election_By_Id(id: int, db: Session = Depends(get_db)):
         NumberOfPartylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approved').count()
         NumberOfPositions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election.ElectionId).count()
 
+        # See if the voting period is ongoing or over
+        now = manila_now
+        is_voting_over = now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila'))
+
         positions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == id).order_by(CreatedElectionPosition.CreatedElectionPositionId).all()
         student_organization_name = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first().OrganizationName
 
@@ -1391,6 +1395,7 @@ def get_Election_By_Id(id: int, db: Session = Depends(get_db)):
 
         election_count = db.query(Election).count()
         return {"election": election.to_dict(election_count),
+                "is_voting_period_over": is_voting_over,
                 "organization_logo": organization_logo,
                 "number_of_candidates": NumberOfCandidates,
                 "number_of_partylists": NumberOfPartylists,
@@ -3523,6 +3528,29 @@ def gather_winners_by_election_id(election_id: int):
 
         db.commit()
 
+    # Create the new announcement
+    new_announcement = Announcement(
+        AnnouncementType="Results",
+        AnnouncementTitle=f"Winners for the {election.ElectionName}",
+        AnnouncementBody=f"The winners for the {election.ElectionName} are now available. For more details, browse {election.ElectionName} page.",
+        AttachmentType="Banner",
+        AttachmentImage="", # Initialize the AttachmentImage column with an empty string
+        created_at=manila_now,
+        updated_at=manila_now
+    )
+    db.add(new_announcement)
+    db.commit()
+
+    folder_name = f"Announcements/announcement_{new_announcement.AnnouncementId}"
+
+    # Upload the image to cloudinary
+    response = cloudinary.uploader.upload("winner-image.jpg", public_id=f"{folder_name}/winner-image.jpg", tags=[f'announcement_{new_announcement.AnnouncementId}'])
+
+    # Store the URL in the AttachmentImage column
+    new_announcement.AttachmentImage = "announcement_" + str(new_announcement.AnnouncementId)
+
+    db.commit()
+
     # Remove students in eligibles table with election id since voting period has ended
     #db.query(Eligibles).filter(Eligibles.ElectionId == election.ElectionId).delete()
     #db.commit()
@@ -3608,9 +3636,17 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
     # Get the total of abstain for this election
     total_abstain = election_analytics.AbstainCount
 
+    # Get active voters
+    active_voters = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == election_id).distinct(VotingsTracker.VoterStudentNumber).count()
+
+    # Get inactive voters
+    inactive_voters = num_eligible_voters - active_voters
+
     return { "num_eligible_voters": num_eligible_voters, 
             "total_votes": total_votes, 
             "total_abstain": total_abstain,
+            "active_voters": active_voters,
+            "inactive_voters": inactive_voters,
             "winners": winners_dict
             }
 
