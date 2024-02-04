@@ -3353,7 +3353,7 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
             student_organization_logo_url = ""
 
         # Return the VotingEnd
-        voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd.replace(tzinfo=timezone('Asia/Manila'))
+        voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd
 
         return {
             "results": results,
@@ -3528,9 +3528,9 @@ def gather_winners_by_election_id(election_id: int):
 
         db.commit()
 
-    # Create the new announcement
+    # Create the new announcement for winners
     new_announcement = Announcement(
-        AnnouncementType="Results",
+        AnnouncementType="results",
         AnnouncementTitle=f"Winners for the {election.ElectionName}",
         AnnouncementBody=f"The winners for the {election.ElectionName} are now available. For more details, browse {election.ElectionName} page.",
         AttachmentType="Banner",
