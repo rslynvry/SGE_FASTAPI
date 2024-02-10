@@ -51,7 +51,7 @@ from services import send_verification_code_email, send_pass_code_queue_email, s
 from models import Student, Announcement, Rule, Guideline, Election, SavedPosition, CreatedElectionPosition, Code, \
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
                     Certifications, CreatedAdminSignatory, StudentOrganization, OrganizationOfficer, OrganizationMember, ElectionAppeals, \
-                    Comelec, Eligibles, CourseEnrolled, Course, StudentClassGrade, Class, Metadata
+                    Comelec, Eligibles, VotingReceipt, CourseEnrolled, Course, StudentClassGrade, Class, Metadata
 #################################################################
 """ Settings """
 
@@ -1681,7 +1681,7 @@ def get_All_Announcement(include_images: Optional[bool] = False, db: Session = D
 @router.get("/announcement/{type}", tags=["Announcement"])
 def get_Announcement_By_Type(type: str, include_images: Optional[bool] = False, db: Session = Depends(get_db)):
     try:
-        announcements = db.query(Announcement).filter(Announcement.AnnouncementType == type).order_by(Announcement.AnnouncementId).all()
+        announcements = db.query(Announcement).filter(Announcement.AnnouncementType == type).order_by(desc(Announcement.AnnouncementId)).all()
         return {"announcements": [announcement.to_dict(i+1, include_images=include_images) for i, announcement in enumerate(announcements)]}
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching announcements from the database"})
@@ -2472,7 +2472,7 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         get_position_quantity = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election_id, CreatedElectionPosition.PositionName == position).first()
 
         if get_position >= int(get_position_quantity.PositionQuantity):
-            return JSONResponse(status_code=400, content={"error": "The number of candidates for this partylist for this position is already full."})
+            return JSONResponse(status_code=400, content={"error": "The number of candidates on this party list for this position is already full."})
     
     new_coc = CoC(ElectionId=election_id,
                     StudentNumber=student_number,
@@ -2598,6 +2598,11 @@ async def reject_CoC(id: int, db: Session = Depends(get_db)):
 
         coc.Status = 'Rejected'
         coc.updated_at = manila_now
+
+        # Remove political affiliation and party list id
+        coc.PoliticalAffiliation = 'Independent'
+        coc.PartyListId = None
+        coc.SelectedPositionName = ''
 
         db.commit()
 
@@ -3335,8 +3340,8 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
         # Get total votes of position from all candidates
         total_votes_position = sum(candidate.Votes for candidate in db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).all())
 
-        # Get total abstain count of position from all candidates
-        total_abstain_count = sum(candidate.TimesAbstained for candidate in db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).all())
+        # Get total abstain count of position from all candidates unique by student number
+        total_abstain_count = db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name, Candidates.StudentNumber == 'abstain').count()
 
         # Get all eligible voters for this election from eligibles table
         total_eligible_voters = db.query(Eligibles).filter(Eligibles.ElectionId == id).count()
@@ -3438,7 +3443,128 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
             
             db.commit()
 
-    return {"response": "success"}
+    # Add a new record in the VotingReceipt table
+    new_voting_receipt = VotingReceipt(ElectionId=votes_list.election_id,
+                                        StudentNumber=votes_list.voter_student_number,
+                                        ReceiptPDF="",
+                                        created_at=manila_now,
+                                        updated_at=manila_now)
+    
+    db.add(new_voting_receipt)
+    db.commit()
+
+    election = db.query(Election).filter(Election.ElectionId == votes_list.election_id).first()
+
+    # Create the PDF
+    now = manila_now
+    pdf_name = f"Report_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
+    doc = SimpleDocTemplate(pdf_name, pagesize=letter, topMargin=36)
+
+    # Get the default style sheet
+    styles = getSampleStyleSheet()
+
+    # Create a list to hold the PDF elements
+    elements = []
+
+    styles.add(ParagraphStyle(name="TitleStyleCenter", fontName="Times-Roman", fontSize=12, alignment=TA_CENTER, spaceAfter=6, leading=12))
+
+    styles.add(ParagraphStyle(name="TitleStyleLeft", fontName="Times-Roman", fontSize=12, alignment=TA_LEFT, spaceAfter=6, leading=12))
+    styles.add(ParagraphStyle(name="TitleStyleRight", fontName="Times-Roman", fontSize=12, alignment=TA_RIGHT, spaceAfter=6, leading=12))
+    
+    styles.add(ParagraphStyle(name="JustifyContent", fontName="Times-Roman", fontSize=12, alignment=TA_JUSTIFY, spaceAfter=6, leading=12))
+
+    # Add the logo
+    logo = Image("puplogo.png", width=80, height=80)  # Adjust the path and size as needed
+    elements.append(logo)
+    elements.append(Spacer(1, 18))
+
+    # Add the title
+    elements.append(Paragraph("<b>STUDENT ELECTION OFFICIAL RECEIPT</b>", styles['TitleStyleCenter']))
+    elements.append(Spacer(1, 18))
+
+    # Create a list of lists for the table data
+    data = [
+        [Paragraph(f"<b>Student Number:</b> {votes_list.voter_student_number}", styles['TitleStyleLeft']), 
+        Paragraph(f"<b>Date Voted:</b> {now.strftime('%B %d, %Y %I:%M %p')}", styles['TitleStyleRight'])],
+        [Paragraph(f"<b>Election Name:</b> {election.ElectionName}", styles['TitleStyleLeft']), 
+        Paragraph(f"<b>Receipt Id:</b> {new_voting_receipt.VotingReceiptId}", styles['TitleStyleRight'])]
+    ]
+
+    # Create a table with the data
+    t = Table(data)
+
+    # Create a table style
+    table_style = TableStyle([
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),  # Set left padding to 0 for all cells
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),  # Set right padding to 0 for all cells
+    ])
+
+    # Apply the table style to the table
+    t.setStyle(table_style)
+
+    # Add the table to the elements
+    elements.append(t)
+    elements.append(Spacer(1, 18))
+
+    elements.append(Paragraph(f"Note: This receipt serves as confirmation that your vote in the {election.ElectionName} has been successfully cast. Please keep this receipt for your records.", styles['JustifyContent']))
+    elements.append(Spacer(1, 18))
+
+    # Group votes by position
+    votes_by_position = defaultdict(list)
+    for vote in votes_list.votes:
+        if vote.candidate_student_number != 'abstain':
+            candidate = db.query(Candidates).filter(Candidates.StudentNumber == vote.candidate_student_number, Candidates.ElectionId == votes_list.election_id).first()
+ 
+            # Get full name
+            student = db.query(Student).filter(Student.StudentNumber == vote.candidate_student_number).first()
+            full_name = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
+
+            votes_by_position[candidate.SelectedPositionName].append(candidate.StudentNumber + ": " + full_name)
+
+    # Loop through the votes list
+    for position, candidates in votes_by_position.items():
+        elements.append(Paragraph(f"<b>Voted for position {position}:</b>", styles['TitleStyleLeft']))
+        for candidate in candidates:
+            elements.append(Paragraph(f"{candidate}", styles['TitleStyleLeft']))
+            elements.append(Spacer(1, 12))
+
+    # Group abstains by position
+    abstains_by_position = defaultdict(list)
+    for abstain in votes_list.abstainList:
+        candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == abstain, Candidates.ElectionId == votes_list.election_id).all()
+
+        for candidate in candidates:
+            abstains_by_position[candidate.SelectedPositionName].append(candidate.SelectedPositionName)
+
+    # Check if there are no abstains in abstain_by_position
+    if not abstains_by_position:
+        elements.append(Paragraph(f"<b>Abstained list:</b> None", styles['TitleStyleLeft']))
+    else:
+        # Loop through the abstain list
+        elements.append(Paragraph(f"<b>Abstained list:</b>", styles['TitleStyleLeft']))
+        for position, abstains in abstains_by_position.items():
+            for abstain in abstains:
+                elements.append(Paragraph(f"{abstain}", styles['TitleStyleLeft']))
+
+
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph(f"Thank you for participating in the democratic process of our institution!", styles['TitleStyleLeft']))
+
+    # Build the PDF
+    doc.build(elements)
+
+    # Upload the PDF to cloudinary
+    upload_result = cloudinary.uploader.upload(pdf_name, public_id=f"Votings/voting_{votes_list.voter_student_number}_{now.strftime('%Y%m%d_%H%M%S')}", 
+                                            tags=[f'voting_{votes_list.voter_student_number}'])
+    
+    new_voting_receipt.ReceiptPDF = upload_result['secure_url']
+    db.commit()
+
+    # Delete the local file
+    os.remove(pdf_name)
+
+    return {"response": "success",
+            "upload_result": upload_result['secure_url']}
 
 #################################################################
 ## ElectionWinners APIs ## 
@@ -3890,6 +4016,9 @@ def get_Reports_By_Election_Id_And_Candidate_StudentNumber(election_id: int, stu
     except Exception as e:
         print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
         coc_dict["DisplayPhoto"] = ""
+
+    # Get the position name of the candidate
+    coc_dict["PositionName"] = coc.SelectedPositionName
 
     # Get the partylist name of the candidate
     partylist = db.query(PartyList).filter(PartyList.PartyListId == coc.PartyListId).first()

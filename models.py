@@ -784,6 +784,26 @@ class Eligibles(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
     
+class VotingReceipt(Base):
+    __tablename__ = "SGEVotingReceipt"
+
+    VotingReceiptId = Column(Integer, primary_key=True)
+    ElectionId = Column(Integer, ForeignKey('SGEElection.ElectionId'))
+    StudentNumber = Column(String(15), ForeignKey('SPSStudent.StudentNumber'))
+    ReceiptPDF = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self):
+        return {
+            "VotingReceiptId": self.VotingReceiptId,
+            "ElectionId": self.ElectionId,
+            "StudentNumber": self.StudentNumber,
+            "ReceiptPDF": self.ReceiptPDF,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+    
 ##################################################################
 # Insert datas to tables
 db = SessionLocal()
