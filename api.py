@@ -51,7 +51,7 @@ from services import send_verification_code_email, send_pass_code_queue_email, s
 from models import Student, Announcement, Rule, Guideline, Election, SavedPosition, CreatedElectionPosition, Code, \
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
                     Certifications, CreatedAdminSignatory, StudentOrganization, OrganizationOfficer, OrganizationMember, ElectionAppeals, \
-                    Comelec, Eligibles, VotingReceipt, CourseEnrolled, Course, StudentClassGrade, Class, Metadata
+                    Comelec, Eligibles, VotingReceipt, CertificationsSigned, CourseEnrolled, Course, StudentClassGrade, Class, Metadata
 #################################################################
 """ Settings """
 
@@ -2174,6 +2174,42 @@ def download_Certification(id: int, background_tasks: BackgroundTasks, db: Sessi
     except Exception as e:
         print(f"Error fetching pdf from Cloudinary: {e}")
         return {"pdf": ''}
+    
+@router.get("/certification/signed/all", tags=["Certification"])
+def get_All_Signed_Certification(db: Session = Depends(get_db)):
+    certifications_signed = db.query(CertificationsSigned).all()
+
+    return {"certifications_signed": [certification_signed.to_dict() for i, certification_signed in enumerate(certifications_signed)]}
+
+@router.get("/certification/signed/preview/{id}", tags=["Certification"])
+def preview_Signed_Certification(id: int, db: Session = Depends(get_db)):
+    certification_signed = db.query(CertificationsSigned).get(id)
+
+    if not certification_signed:
+        return JSONResponse(status_code=404, content={"detail": "Certification not found"})
+
+    return {"pdf": certification_signed.FileURL}
+
+@router.get("/certification/signed/download/{id}", tags=["Certification"])
+def download_Signed_Certification(id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    certification_signed = db.query(CertificationsSigned).get(id)
+
+    if not certification_signed:
+        return JSONResponse(status_code=404, content={"detail": "Certification not found"})
+
+    # Download the pdf
+    pdf = requests.get(certification_signed.FileURL)
+
+    # Save the pdf with student number as filename
+    filename = f"{certification_signed.CertificationTitle}.pdf"
+    with open(filename, 'wb') as f:
+        f.write(pdf.content)
+
+    # Schedule the file to be deleted after the response is sent
+    background_tasks.add_task(remove_file, filename)
+
+    # Return the pdf
+    return FileResponse(filename, media_type="application/pdf", filename=filename)
 
 """ ** POST Methods: Certifications Table APIs ** """
 class SignatureLine(Flowable):
@@ -2320,6 +2356,58 @@ def create_Certification(certification_data: CertificationData, db: Session = De
     return JSONResponse({
         "message": "Certifications created successfully"
     })
+
+@router.post("/certification/signed/upload", tags=["Certification"])
+async def upload_Signed_Certification(files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
+    if not os.path.exists('temp'):
+        os.makedirs('temp')
+
+    for file in files:
+        # Save the file to a temporary location
+        temp_file = f"temp/{file.filename}"
+        with open(temp_file, "wb") as buffer:
+            buffer.write(await file.read())
+
+        # Create a new row in the CertificationsSigned table
+        new_certification = CertificationsSigned(CertificationTitle=file.filename,
+                                                 DateUploaded=manila_now,
+                                                 created_at=manila_now,
+                                                 updated_at=manila_now)  # Add other fields as needed
+        db.add(new_certification)
+        db.commit()
+
+        # Upload the file to Cloudinary
+        upload_result = cloudinary.uploader.upload(temp_file, 
+                               resource_type = "raw", 
+                               public_id = f"Directory/Certifications/Signed/{file.filename}",
+                               tags=[f'certification_signed_{new_certification.CertificationsSignedId}'])
+        
+        # Associate the upload_result to the row of the file created in the table
+        new_certification.FileURL = upload_result['secure_url']
+        db.commit()
+
+        # Delete the temporary file
+        os.remove(temp_file)
+
+    return {"response": "success"}
+
+@router.delete("/certification/signed/delete/{certificate_id}", tags=["Certification"])
+def delete_Signed_Certification(certificate_id: int, db: Session = Depends(get_db)):
+    certification = db.query(CertificationsSigned).get(certificate_id)
+
+    if not certification:
+        return JSONResponse(status_code=404, content={"detail": "Certification not found"})
+
+    # The public ID is the last component of the path, without the file extension
+    public_id = "Directory/Certifications/Signed/" + certification.CertificationTitle
+
+    # Delete the file from Cloudinary
+    cloudinary.uploader.destroy(public_id, resource_type="raw")
+
+    # Delete the row from the table
+    db.delete(certification)
+    db.commit()
+    return {"detail": "Certification id " + str(certificate_id) + " was successfully deleted"}
 
 #################################################################
 ## Organizations APIs ## 

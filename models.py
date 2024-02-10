@@ -804,6 +804,26 @@ class VotingReceipt(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
     
+class CertificationsSigned(Base):
+    __tablename__ = "SGECertificationsSigned"
+
+    CertificationsSignedId = Column(Integer, primary_key=True)
+    CertificationTitle = Column(String)
+    DateUploaded = Column(Date)
+    FileURL = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    def to_dict(self):
+        return {
+            "CertificationsSignedId": self.CertificationsSignedId,
+            "CertificationTitle": self.CertificationTitle,
+            "DateUploaded": self.DateUploaded.isoformat() if self.DateUploaded else None,
+            "FileURL": self.FileURL,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        }
+    
 ##################################################################
 # Insert datas to tables
 db = SessionLocal()
