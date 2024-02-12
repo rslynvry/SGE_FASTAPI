@@ -805,7 +805,7 @@ class VotingReceipt(Base):
         }
     
 class CertificationsSigned(Base):
-    __tablename__ = "SGECertificationsSigned"
+    __tablename__ = "SGECertificationsSigned2"
 
     CertificationsSignedId = Column(Integer, primary_key=True)
     CertificationTitle = Column(String)

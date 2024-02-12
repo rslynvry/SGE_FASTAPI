@@ -142,7 +142,7 @@ def send_pass_code_manual_email(student_number, student_email, pass_code):
 #########################################################
 """ Send email to status of candidacy application """
 
-def send_coc_status_email(student_number, student_email, status, role, election_name):
+def send_coc_status_email(student_number, student_email, status, role, election_name, reject_reason=None):
     # Set up the SMTP server
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
@@ -174,6 +174,7 @@ def send_coc_status_email(student_number, student_email, status, role, election_
             <p>Dear, Student {student_number}</p>
             <p style="margin-top: 0.2em; margin-bottom: 0.2em;">We appreciate your interest and dedication in applying for the <strong>{role}</strong> position on <strong>{election_name}</strong>.</p>
             <p style="color: black;">After careful consideration, we regret to inform you that your candidacy has not been successful this time.</p>
+            <p style="margin-top: 0.5em; color: black;"><b>Reason:</b> {reject_reason}</p>
         </body>
         </html>
     """
@@ -194,7 +195,7 @@ def send_coc_status_email(student_number, student_email, status, role, election_
 #########################################################
 """ Send email to status of partylist application """
 
-def send_partylist_status_email(party_email, status, partylist_name, election_name):
+def send_partylist_status_email(party_email, status, partylist_name, election_name, reject_reason=None):
     # Set up the SMTP server
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
@@ -225,6 +226,7 @@ def send_partylist_status_email(party_email, status, partylist_name, election_na
             <p>Greetings, fellow student</p>
             <p style="margin-top: 0.2em; margin-bottom: 0.2em;">We appreciate your interest and dedication in applying for the <strong>{partylist_name}</strong> on <strong>{election_name}</strong>.</p>
             <p style="color: black;">After careful consideration, we regret to inform you that your partylist has not been successful this time.</p>
+            <p style="margin-top: 0.5em; color: black;"><b>Reason:</b> {reject_reason}</p>
         </body>
         </html>
     """

@@ -2631,8 +2631,8 @@ async def email_coc_status_wroker():
         task = await queue_email_coc_status.get()
 
         # Process the task
-        student_number, student_email, status, position_name, election_name = task
-        send_coc_status_email(student_number, student_email, status, position_name, election_name)
+        student_number, student_email, status, position_name, election_name, reject_reason = task
+        send_coc_status_email(student_number, student_email, status, position_name, election_name, reject_reason)
 
         # Indicate that the task is done
         queue_email_coc_status.task_done()
@@ -2643,6 +2643,7 @@ asyncio.create_task(email_coc_status_wroker())
 async def accept_CoC(id: int, db: Session = Depends(get_db)):
     try:
         coc = db.query(CoC).get(id)
+        reject_reason = '' # None because the CoC is accepted, just initialize
 
         if not coc:
             return JSONResponse(status_code=404, content={"detail": "CoC not found"})
@@ -2670,14 +2671,14 @@ async def accept_CoC(id: int, db: Session = Depends(get_db)):
         # Get the election from the Election table using the election id in the CoC table
         election = db.query(Election).filter(Election.ElectionId == coc.ElectionId).first()
 
-        await queue_email_coc_status.put((student.StudentNumber, student.Email, 'Approved', coc.SelectedPositionName, election.ElectionName))
+        await queue_email_coc_status.put((student.StudentNumber, student.Email, 'Approved', coc.SelectedPositionName, election.ElectionName, reject_reason))
 
         return {"detail": "CoC id " + str(id) + " was successfully approved"}
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while approving CoC in the table CoC"})
     
 @router.put("/coc/{id}/reject", tags=["CoC"])
-async def reject_CoC(id: int, db: Session = Depends(get_db)):
+async def reject_CoC(id: int, reject_reason: str = Form(...), db: Session = Depends(get_db)):
     try:
         coc = db.query(CoC).get(id)
 
@@ -2690,7 +2691,6 @@ async def reject_CoC(id: int, db: Session = Depends(get_db)):
         # Remove political affiliation and party list id
         coc.PoliticalAffiliation = 'Independent'
         coc.PartyListId = None
-        coc.SelectedPositionName = ''
 
         db.commit()
 
@@ -2700,7 +2700,7 @@ async def reject_CoC(id: int, db: Session = Depends(get_db)):
         # Get the election from the Election table using the election id in the CoC table
         election = db.query(Election).filter(Election.ElectionId == coc.ElectionId).first()
 
-        await queue_email_coc_status.put((student.StudentNumber, student.Email, 'Rejected', coc.SelectedPositionName, election.ElectionName))
+        await queue_email_coc_status.put((student.StudentNumber, student.Email, 'Rejected', coc.SelectedPositionName, election.ElectionName, reject_reason))
 
         return {"detail": "CoC id " + str(id) + " was successfully rejected"}
     except:
@@ -3074,8 +3074,8 @@ async def email_partylist_status_wroker():
         task = await queue_email_partylist_status.get()
 
         # Process the task
-        party_email, status, partylist_name, election_name = task
-        send_partylist_status_email(party_email, status, partylist_name, election_name)
+        party_email, status, partylist_name, election_name, reject_reason = task
+        send_partylist_status_email(party_email, status, partylist_name, election_name, reject_reason)
 
         # Indicate that the task is done
         queue_email_partylist_status.task_done()
@@ -3086,6 +3086,7 @@ asyncio.create_task(email_partylist_status_wroker())
 async def accept_PartyList(id: int, db: Session = Depends(get_db)):
     try:
         partylist = db.query(PartyList).get(id)
+        reject_reason = '' # None because the Partylist is accepted, just initialize
 
         if not partylist:
             return JSONResponse(status_code=404, content={"detail": "Partylist not found"})
@@ -3098,14 +3099,14 @@ async def accept_PartyList(id: int, db: Session = Depends(get_db)):
         # Get the election from the Election table using the election id in the CoC table
         election = db.query(Election).filter(Election.ElectionId == partylist.ElectionId).first()
 
-        await queue_email_partylist_status.put((partylist.EmailAddress, 'Approved', partylist.PartyListName, election.ElectionName))
+        await queue_email_partylist_status.put((partylist.EmailAddress, 'Approved', partylist.PartyListName, election.ElectionName, reject_reason))
 
         return {"detail": "Partylist id " + str(id) + " was successfully approved"}
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while approving partylist in the table PartyList"})
     
 @router.put("/partylist/{id}/reject", tags=["Party List"])
-async def reject_PartyList(id: int, db: Session = Depends(get_db)):
+async def reject_PartyList(id: int, reject_reason: str = Form(...), db: Session = Depends(get_db)):
     try:
         partylist = db.query(PartyList).get(id)
 
@@ -3120,7 +3121,7 @@ async def reject_PartyList(id: int, db: Session = Depends(get_db)):
         # Get the election from the Election table using the election id in the CoC table
         election = db.query(Election).filter(Election.ElectionId == partylist.ElectionId).first()
 
-        await queue_email_partylist_status.put((partylist.EmailAddress, 'Rejected', partylist.PartyListName, election.ElectionName))
+        await queue_email_partylist_status.put((partylist.EmailAddress, 'Rejected', partylist.PartyListName, election.ElectionName, reject_reason))
 
         return {"detail": "Partylist id " + str(id) + " was successfully rejected"}
     except:
