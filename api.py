@@ -51,7 +51,8 @@ from services import send_verification_code_email, send_pass_code_queue_email, s
 from models import Student, Announcement, Rule, Guideline, Election, SavedPosition, CreatedElectionPosition, Code, \
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
                     Certifications, CreatedAdminSignatory, StudentOrganization, OrganizationOfficer, OrganizationMember, ElectionAppeals, \
-                    Comelec, Eligibles, VotingReceipt, CertificationsSigned, CourseEnrolled, Course, StudentClassGrade, Class, Metadata
+                    Comelec, Eligibles, VotingReceipt, CertificationsSigned, CourseEnrolled, Course, StudentClassGrade, Class, Metadata, \
+                    IncidentReport
 #################################################################
 """ Settings """
 
@@ -1527,6 +1528,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
 
         for student in students:
             # Check if the student is not in the eligibles table yet with same election id
+            # Check CourseEnrolled if column status is 0
             if not db.query(Eligibles).filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber).first():
                 if iteration == limit:
                     break
@@ -2523,6 +2525,12 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     if manila_now > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
 
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
+    
+    # Check if the student exists in IncidentReport table
+    student_id = db.query(Student).filter(Student.StudentNumber == student_number).first().StudentId
+    incident_report = db.query(IncidentReport).filter(IncidentReport.StudentId == student_id).first()
+    if incident_report:
+        return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC due to an incident report associated with you."})
     
     # Check if the student exists in the database
     student = db.query(Student).filter(Student.StudentNumber == student_number).first()

@@ -162,6 +162,37 @@ class Metadata(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+    
+##############################################################################
+## SCDC tables ## 
+class IncidentReport(Base):
+    __tablename__ = 'SCDSIncidentReport'
+    
+    Id = Column(Integer, primary_key=True, nullable=False) #ReportID
+    Date = Column(String(20), nullable=False) #Date
+    Time = Column(String(20), nullable=False) #Time
+    IncidentId = Column(Integer, ForeignKey('SCDSIncidentType.IncidentTypeId', ondelete="CASCADE")) #IncidentTypeID
+    LocationId = Column(Integer, ForeignKey('SCDSLocation.LocationId', ondelete="CASCADE")) #LocationID
+    StudentId = Column(Integer, ForeignKey('SPSStudent.StudentId', ondelete="CASCADE")) #StudentID
+    ComplainantId = Column(Integer, ForeignKey('SPSStudent.StudentId', ondelete="CASCADE")) #ComplainantID
+    InvestigatorId = Column(Integer, ForeignKey('FISFaculty.FacultyId', ondelete="CASCADE"), nullable=True) #InvestigatorID
+    Description = Column(Text, nullable=False) #Description
+    Status = Column(String(20), nullable=False, default='pending') #Status
+    IsAccessible = Column(Boolean, nullable=False, default=False) #IsAccessible
+
+    def to_dict(self):
+        return {
+            'Date': self.Date,
+            'Time': self.Time,
+            'IncidentId': self.IncidentId,
+            'LocationId': self.LocationId,
+            'StudentId': self.StudentId,
+            'ComplainantID': self.ComplainantID,
+            'InvestigatorId': self.InvestigatorId,
+            'Description': self.Description,
+            'Status': self.Status,
+            'IsAccessible': self.IsAccessible,
+        }
 
 ##############################################################################
 ## SGE tables ## 
