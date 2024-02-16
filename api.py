@@ -952,39 +952,12 @@ def get_Student_Organization(student_organization_id: int, db: Session = Depends
     
     student_organization = student_organization.to_dict()
 
-    # Get adviser image in cloudinary using tag
-    try:
-        get_image = resources_by_tag(student_organization["AdviserImage"])
-        adviser_image = get_image["resources"][0]["secure_url"] if get_image else ""
-    except Exception as e:
-        print(f"Error fetching image from Cloudinary: {e}")
-        adviser_image = ""
-
-    # Get organization image in cloudinary using tag
-    try:
-        get_image = resources_by_tag(student_organization["OrganizationLogo"])
-        organization_logo = get_image["resources"][0]["secure_url"] if get_image else ""
-    except Exception as e:
-        print(f"Error fetching image from Cloudinary: {e}")
-        organization_logo = ""
-
-    student_organization["OrganizationLogo"] = organization_logo
-
-    student_organization["AdviserImage"] = adviser_image
+    # Get the organization logo and adviser image in cloudinary using secure url
+    student_organization["OrganizationLogo"] = student_organization["OrganizationLogo"]
+    student_organization["AdviserImage"] = student_organization["AdviserImage"]
 
     # Get officers
     officers = db.query(OrganizationOfficer).filter(OrganizationOfficer.StudentOrganizationId == student_organization_id).all()
-    
-    for officer in officers:
-        # Get officer image in cloudinary using tag 
-        try:
-            get_image = resources_by_tag(officer.Image)
-            officer_image = get_image["resources"][0]["secure_url"] if get_image else ""
-        except Exception as e:
-            print(f"Error fetching image from Cloudinary: {e}")
-            officer_image = ""
-
-        officer.Image = officer_image
 
     student_organization["officers"] = [officer.to_dict() for officer in officers]
 
@@ -1027,6 +1000,23 @@ def get_Student_Organization(student_organization_id: int, db: Session = Depends
         member["CourseCode"] = student_metadata["CourseCode"] if "CourseCode" in student_metadata else ''
         member["Year"] = student_year if "Year" in student_metadata else ''
         member["Section"] = student_section if student_section else ''
+
+    return {"student_organization": student_organization}
+
+@router.get("/student/organization/get_by_election_id/{election_id}", tags=["Student Organization"])
+def get_Student_Organization_By_Election(election_id: int, db: Session = Depends(get_db)):
+    # Get the student organization id by election id
+    student_organization_id = db.query(Election).filter(Election.ElectionId == election_id).first().StudentOrganizationId
+    
+    if not student_organization_id:
+        return {"error": f"Student organization with election id {election_id} not found."}
+
+    student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == student_organization_id).first()
+
+    if not student_organization:
+        return {"error": f"Student organization with id {student_organization_id} not found."}
+    
+    student_organization = student_organization.to_dict()
 
     return {"student_organization": student_organization}
 
@@ -1087,8 +1077,8 @@ async def student_Organization_Create(data: StudentOrganizationData, db: Session
                                         public_id = f"StudentOrganization/{data.organization_name + str(organization.StudentOrganizationId)}/Adviser",
                                         tags=[adviser_image_tag])
     
-    organization.OrganizationLogo = organization_logo_tag
-    organization.AdviserImage = adviser_image_tag
+    organization.OrganizationLogo = upload_result1['secure_url']
+    organization.AdviserImage = upload_result2['secure_url']
 
     db.commit()
             
@@ -1124,11 +1114,11 @@ async def student_Organization_Create(data: StudentOrganizationData, db: Session
         officer_image_tag = 'OrganizationOfficer' + str(new_officer.OrganizationOfficerId)
 
         # uplaod the officer image to cloudinary
-        upload_result = cloudinary.uploader.upload(officer.image,
+        upload_result3 = cloudinary.uploader.upload(officer.image,
                                         public_id = f"StudentOrganization/{data.organization_name + str(organization.StudentOrganizationId)}/Officers/{officer.student_number}",
                                         tags=[officer_image_tag])
 
-        new_officer.Image = officer_image_tag
+        new_officer.Image = upload_result3['secure_url']
         db.commit()
 
     # Create the members
@@ -1251,13 +1241,8 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
         election_dict["StudentOrganizationName"] = student_organization.OrganizationName if student_organization else ""
         
-        # Get the student organization logo from cloudinary using the student organization id in the election
-        try:
-            organization_logo = resources_by_tag(student_organization.OrganizationLogo)
-            election_dict["OrganizationLogo"] = organization_logo["resources"][0]["secure_url"] if organization_logo else ""
-        except Exception as e:
-            print(f"Error fetching image from Cloudinary: {e}")
-            election_dict["OrganizationLogo"] = ""
+        # Get the organization logo using secure_url from cloudinary stored in OrganizationLogo column
+        election_dict["OrganizationLogo"] = student_organization.OrganizationLogo
 
         # Get the OrganizationMemberRequirement of the election from the StudentOrganization table
         student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
@@ -1325,13 +1310,8 @@ def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends
         student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
         election_dict["OrganizationMemberRequirement"] = student_organization.OrganizationMemberRequirements if student_organization else ""
 
-        # Get the organization logo from cloudinary using the student organization id in the election
-        try:
-            organization_logo = resources_by_tag(student_organization.OrganizationLogo)
-            election_dict["OrganizationLogo"] = organization_logo["resources"][0]["secure_url"] if organization_logo else ""
-        except Exception as e:
-            print(f"Error fetching image from Cloudinary: {e}")
-            election_dict["OrganizationLogo"] = ""
+        # Get the organization logo using secure_url from cloudinary stored in OrganizationLogo column
+        election_dict["OrganizationLogo"] = student_organization.OrganizationLogo
 
         # Check if voting period is over
         if now >= election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
@@ -1373,13 +1353,8 @@ def get_Election_By_Id(id: int, db: Session = Depends(get_db)):
         
         student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
         
-        # Get the student organization logo from cloudinary using the student organization id in the election
-        try:
-            organization_logo = resources_by_tag(student_organization.OrganizationLogo)
-            organization_logo = organization_logo["resources"][0]["secure_url"] if organization_logo else ""
-        except Exception as e:
-            print(f"Error fetching image from Cloudinary: {e}")
-            organization_logo = ""
+        # Get the student organization logo using secure_url from cloudinary stored in OrganizationLogo column
+        organization_logo = student_organization.OrganizationLogo
 
         NumberOfCandidates = db.query(Candidates).filter(Candidates.ElectionId == election.ElectionId).count()
         NumberOfPartylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approved').count()
@@ -1433,13 +1408,8 @@ def get_All_Approved_Candidates_CoC_By_Election_Id(id: int, db: Session = Depend
                 partylist = db.query(PartyList).filter(PartyList.PartyListId == coc.PartyListId).first()
                 coc_dict["PartyListName"] = partylist.PartyListName if partylist else ""
 
-            # Get the display photo from cloudinary using the coc.displayphoto resources by tag in cloudinary
-            try:
-                display_photo = resources_by_tag(coc.DisplayPhoto)
-                coc_dict["DisplayPhoto"] = display_photo["resources"][0]["secure_url"] if display_photo else ""
-            except Exception as e:
-                print(f"Error fetching image from Cloudinary: {e}")
-                coc_dict["DisplayPhoto"] = ""
+            # Get the display photo from cloudinary using secure_url stored in DisplayPhoto column
+            coc_dict["DisplayPhoto"] = coc.DisplayPhoto
 
             cocs_with_student.append(coc_dict)
 
@@ -2129,11 +2099,8 @@ def preview_Certification(id: int, db: Session = Depends(get_db)):
         return JSONResponse(status_code=404, content={"detail": "Certification not found"})
 
     try:
-        asset_id = certification.AssetId
-        response = cloudinary.api.resource_by_asset_id(asset_id)
-
-        if 'secure_url' in response:
-            pdf_certificate = response['secure_url']
+        if certification.AssetId:
+            pdf_certificate = certification.AssetId
 
             return {"pdf": pdf_certificate}
         else:
@@ -2151,11 +2118,8 @@ def download_Certification(id: int, background_tasks: BackgroundTasks, db: Sessi
         return JSONResponse(status_code=404, content={"detail": "Certification not found"})
 
     try:
-        asset_id = certification.AssetId
-        response = cloudinary.api.resource_by_asset_id(asset_id)
-
-        if 'secure_url' in response:
-            pdf_certificate = response['secure_url']
+        if certification.AssetId:
+            pdf_certificate = certification.AssetId
 
             # Download the pdf
             pdf = requests.get(pdf_certificate)
@@ -2348,7 +2312,7 @@ def create_Certification(certification_data: CertificationData, db: Session = De
                                public_id = f"Directory/Certifications/{pdf_name}",
                                tags=[f'certification_{new_certification.CertificationId}'])
         
-        new_certification.AssetId = upload_result['asset_id']
+        new_certification.AssetId = upload_result['secure_url']
         db.commit()
 
         # Delete the local file
@@ -2475,22 +2439,9 @@ def get_CoC_By_Id(id: int, db: Session = Depends(get_db)):
             party_list = db.query(PartyList).filter(PartyList.PartyListId == coc.PartyListId).first()
             coc_dict["PartyListName"] = party_list.PartyListName if party_list else None
 
-        # Include image URLs in the CoC dictionary from cloudinary
-        try:
-            if coc.DisplayPhoto:
-                response = resources_by_tag(coc.DisplayPhoto)
-                coc_dict["DisplayPhoto"] = response['resources'][0]['secure_url']
-        except Exception as e:
-            print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-            coc_dict["DisplayPhoto"] = ""
-
-        try:
-            if coc.CertificationOfGrades:
-                response = resources_by_tag(coc.CertificationOfGrades)
-                coc_dict["CertificationOfGrades"] = response['resources'][0]['secure_url']
-        except Exception as e:
-            print(f"Error fetching CertificationOfGrades from Cloudinary: {e}")
-            coc_dict["CertificationOfGrades"] = ""
+        # Include image URLs in the CoC dictionary using the secure URL from Cloudinary
+        coc_dict["DisplayPhoto"] = coc.DisplayPhoto
+        coc_dict["CertificationOfGrades"] = coc.CertificationOfGrades
 
         coc_dict["Student"] = student.to_dict() if student else None
         student_metadata = get_Student_Metadata_by_studnumber(student.StudentNumber)
@@ -2595,10 +2546,10 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         tag_name = f'coc_display_photo_{new_coc.CoCId}'
 
         # Upload file to Cloudinary with the folder name in the public ID
-        response = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/display_photo/{display_photo_file_name}", tags=[tag_name])
+        response_display_photo = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/display_photo/{display_photo_file_name}", tags=[tag_name])
 
         # Store the tag in the DisplayPhoto column
-        new_coc.DisplayPhoto = tag_name
+        new_coc.DisplayPhoto = response_display_photo['secure_url']
 
     if certification_of_grades:
         # Remove the prefix of the base64 string and keep only the data
@@ -2609,10 +2560,10 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
         tag_name = f'coc_cert_grades_{new_coc.CoCId}'
 
         # Upload file to Cloudinary with the folder name in the public ID
-        response = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/cert_grades/{certification_of_grades_file_name}", tags=[tag_name])
+        response_certification_grades = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/cert_grades/{certification_of_grades_file_name}", tags=[tag_name])
 
         # Store the tag in the CertificationOfGrades column
-        new_coc.CertificationOfGrades = tag_name
+        new_coc.CertificationOfGrades = response_certification_grades['secure_url']
 
     db.commit()
 
@@ -2929,15 +2880,9 @@ def get_All_Candidates_By_PartyList_Id(id: int, db: Session = Depends(get_db)):
             if student_section:
                 partylist_candidates_dict[i]["Student"]["Section"] = student_section
 
-        # Include the display photo URL from cloudinary in the CoC dictionary
+        # Include the display photo using secure URL from Cloudinary
         for coc in partylist_candidates_dict:
-            try:
-                if coc["DisplayPhoto"]:
-                    response = resources_by_tag(coc["DisplayPhoto"])
-                    coc["DisplayPhoto"] = response['resources'][0]['secure_url']
-            except Exception as e:
-                print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-                coc["DisplayPhoto"] = ""
+            coc["DisplayPhoto"] = coc["DisplayPhoto"]
 
         return {"candidates": partylist_candidates_dict}
 
@@ -2953,13 +2898,7 @@ def get_PartyList_By_Id(id: int, db: Session = Depends(get_db)):
             return JSONResponse(status_code=404, content={"detail": "Partylist not found"})
         
         # Include image URL from cloudinary
-        try:
-            if partylist.ImageAttachment:
-                response = resources_by_tag(partylist.ImageAttachment)
-                partylist.ImageAttachment = response['resources'][0]['secure_url']
-        except Exception as e:
-            print(f"Error fetching ImageAttachment from Cloudinary: {e}")
-            partylist.ImageAttachment = ""
+        partylist.ImageAttachment = partylist.ImageAttachment
 
         # Include the election name using the election id in the partylist dictionary
         if partylist.ElectionId:
@@ -3053,10 +2992,10 @@ async def save_PartyList(election_id: int = Form(...), party_name: str = Form(..
         folder_name = f"Partylists/partylist_{new_partylist.PartyListId}"
 
         # Upload file to Cloudinary with the folder name in the public ID
-        response = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/{image_file_name}", tags=[f'partylist_{new_partylist.PartyListId}'])
+        response_image = cloudinary.uploader.upload("data:image/jpeg;base64," + base64_data, public_id=f"{folder_name}/{image_file_name}", tags=[f'partylist_{new_partylist.PartyListId}'])
 
         # Store the tag in the ImageAttachment column
-        new_partylist.ImageAttachment = f'partylist_{new_partylist.PartyListId}'
+        new_partylist.ImageAttachment = response_image['secure_url']
         db.commit()
 
     return {
@@ -3171,13 +3110,8 @@ def get_All_Candidates(db: Session = Depends(get_db)):
                 coc = db.query(CoC).filter(CoC.StudentNumber == candidate.StudentNumber, CoC.ElectionId == candidate.ElectionId).first()
                 candidate_dict["Motto"] = coc.Motto if coc else ""
 
-            # Get the display photo from cloudinary using the candidate.displayphoto resources by tag in cloudinary
-            try:
-                display_photo = resources_by_tag(candidate.DisplayPhoto)
-                candidate_dict["DisplayPhoto"] = display_photo["resources"][0]["secure_url"] if display_photo else ""
-            except Exception as e:
-                print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-                candidate_dict["DisplayPhoto"] = ""
+            # Get the display photo using secure URL from Cloudinary
+            candidate_dict["DisplayPhoto"] = candidate.DisplayPhoto
             
             candidates_with_student.append(candidate_dict)
 
@@ -3221,13 +3155,8 @@ def get_All_Candidates_By_Election_Id(id: int, db: Session = Depends(get_db)):
                 coc = db.query(CoC).filter(CoC.StudentNumber == candidate.StudentNumber, CoC.ElectionId == candidate.ElectionId).first()
                 candidate_dict["Motto"] = coc.Motto if coc else ""
 
-            # Get the display photo from cloudinary using the candidate.displayphoto resources by tag in cloudinary
-            try:
-                display_photo = resources_by_tag(candidate.DisplayPhoto)
-                candidate_dict["DisplayPhoto"] = display_photo["resources"][0]["secure_url"] if display_photo else ""
-            except Exception as e:
-                print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-                candidate_dict["DisplayPhoto"] = ""
+            # Get the display photo using secure URL from Cloudinary
+            candidate_dict["DisplayPhoto"] = candidate.DisplayPhoto
             
             candidates_with_student.append(candidate_dict)
 
@@ -3279,13 +3208,8 @@ def get_All_Candidates_By_Election_Id_Per_Position(id: int, db: Session = Depend
                 candidate_dict["Motto"] = coc.Motto if coc else ""
                 candidate_dict["Platform"] = coc.Platform if coc else ""
 
-            # Get the display photo from cloudinary using the candidate.displayphoto resources by tag in cloudinary
-            try:
-                display_photo = resources_by_tag(candidate.DisplayPhoto)
-                candidate_dict["DisplayPhoto"] = display_photo["resources"][0]["secure_url"] if display_photo else ""
-            except Exception as e:
-                print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-                candidate_dict["DisplayPhoto"] = "" 
+            # Get the display photo using secure URL from Cloudinary
+            candidate_dict["DisplayPhoto"] = candidate.DisplayPhoto
             
             #candidate_dict["DisplayPhoto"] = ""
 
@@ -3411,13 +3335,8 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
             student = db.query(Student).filter(Student.StudentNumber == candidate.StudentNumber).first()
             full_name = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
 
-            # Get the candidate photo from cloudinary using the candidate.displayphoto resources by tag in cloudinary
-            try:
-                display_photo = resources_by_tag(candidate.DisplayPhoto)
-                display_photo_url = display_photo["resources"][0]["secure_url"] if display_photo else ""
-            except Exception as e:
-                print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-                display_photo_url = ""
+            # Get the candidate photo using secure URL from Cloudinary
+            display_photo_url = candidate.DisplayPhoto
 
             # Get candidate partylist
             partylist = db.query(PartyList).filter(PartyList.PartyListId == candidate.PartyListId).first()
@@ -3446,13 +3365,8 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
         # Get the studentorganization logo
         student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == db.query(Election).filter(Election.ElectionId == id).first().StudentOrganizationId).first()
 
-        # Get the studentorganization logo from cloudinary using the studentorganization.logo resources by tag in cloudinary
-        try:
-            student_organization_logo = resources_by_tag(student_organization.OrganizationLogo)
-            student_organization_logo_url = student_organization_logo["resources"][0]["secure_url"] if student_organization_logo else ""
-        except Exception as e:
-            print(f"Error fetching Logo from Cloudinary: {e}")
-            student_organization_logo_url = ""
+        # Get the studentorganization logo using secure URL from Cloudinary
+        student_organization_logo_url = student_organization.OrganizationLogo
 
         # Return the VotingEnd
         voting_end = db.query(Election).filter(Election.ElectionId == id).first().VotingEnd
@@ -3814,12 +3728,8 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
         else:
             candidate_partylist_name = "Independent"
 
-        try:
-            display_photo = resources_by_tag(candidate.DisplayPhoto)
-            display_photo_url = display_photo["resources"][0]["secure_url"] if display_photo else ""
-        except Exception as e:
-            print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-            display_photo_url = ""
+        # Get the display photo using secure URL from Cloudinary
+        display_photo_url = candidate.DisplayPhoto
 
         winners_dict[winner.SelectedPositionName]["is_tied"] = winner.IsTied
         winners_dict[winner.SelectedPositionName]["no_winner"] = False
@@ -3911,16 +3821,10 @@ def get_Election_Appeals_By_Id(id: int, db: Session = Depends(get_db)):
     appeal_dict = appeal.to_dict()
 
     # Get the attachment from cloudinary using the candidate.displayphoto asset id in cloudinary
-    try:
-        if appeal.AttachmentAssetId:
-            attachment = cloudinary.api.resource_by_asset_id(appeal.AttachmentAssetId)
-            appeal_dict["Attachment"] = attachment["secure_url"] if attachment else ""
-
-            # Get the name of the attachment
-            appeal_dict["AttachmentName"] = attachment['secure_url'].split('/')[-1]
-
-    except Exception as e:
-        print(f"Error fetching Attachment from Cloudinary: {e}")
+    if appeal.AttachmentAssetId:
+        appeal_dict["Attachment"] = appeal.AttachmentAssetId
+        appeal_dict["AttachmentName"] = appeal.AttachmentAssetId.split("/")[-1]
+    else:
         appeal_dict["Attachment"] = ""
 
     appeal_dict["Student"] = student.to_dict() if student else {}
@@ -3951,9 +3855,7 @@ def save_Election_Appeals(election_appeals_data: ElectionAppealsData, db: Sessio
                                             public_id=f"Appeals/appeal_{new_appeal.ElectionAppealsId}",
                                             tags=[f'appeal_{new_appeal.ElectionAppealsId}'])
         
-        asset_id = response["asset_id"]
-
-        new_appeal.AttachmentAssetId = asset_id
+        new_appeal.AttachmentAssetId = response['secure_url']
         db.commit()
 
     return {"response": "success"}
@@ -4000,12 +3902,8 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
 
     student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
     
-    try:
-        logo = resources_by_tag(student_organization.OrganizationLogo)
-        election_data["StudentOrganizationLogo"] = logo["resources"][0]["secure_url"] if logo else ""
-    except Exception as e:
-        print(f"Error fetching Logo from Cloudinary: {e}")
-        election_data["StudentOrganizationLogo"] = ""
+    # Get the studentorganization logo using secure URL from Cloudinary
+    election_data["StudentOrganizationLogo"] = student_organization.OrganizationLogo
 
     election_data['StudentOrganizationName'] = student_organization.OrganizationName
     election_data['ElectionName'] = election.ElectionName
@@ -4106,13 +4004,8 @@ def get_Reports_By_Election_Id_And_Candidate_StudentNumber(election_id: int, stu
     student = db.query(Student).filter(Student.StudentNumber == student_number).first()
     coc_dict["FullName"] = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
     
-    # Get the display photo from cloudinary using the candidate.displayphoto resources by tag in cloudinary
-    try:
-        display_photo = resources_by_tag(coc.DisplayPhoto)
-        coc_dict["DisplayPhoto"] = display_photo["resources"][0]["secure_url"] if display_photo else ""
-    except Exception as e:
-        print(f"Error fetching DisplayPhoto from Cloudinary: {e}")
-        coc_dict["DisplayPhoto"] = ""
+    # Get the display photo using secure URL from Cloudinary
+    coc_dict["DisplayPhoto"] = coc.DisplayPhoto
 
     # Get the position name of the candidate
     coc_dict["PositionName"] = coc.SelectedPositionName
