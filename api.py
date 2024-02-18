@@ -109,7 +109,7 @@ router = APIRouter(prefix="/api/v1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['https://sge-voting-byvcc.ondigitalocean.app', 'https://king-prawn-app-2ep7s.ondigitalocean.app', 'https://hammerhead-app-epwem.ondigitalocean.app', 'https://sgeportal.cloud', os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
+    allow_origins=['https://sge-voting-v93v4.ondigitalocean.app', 'https://sge-ems-6uaae.ondigitalocean.app', 'https://sge-portal-9lnv2.ondigitalocean.app', 'https://sgeportal.cloud', os.getenv('ELECTION_MANAGEMENT_SYSTEM'), os.getenv('COMELEC_PORTAL'), os.getenv('VOTING_SYSTEM')], # Must change to appropriate frontend URL (local or production)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
