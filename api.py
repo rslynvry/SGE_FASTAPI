@@ -558,6 +558,60 @@ def get_Student_Section(student_number: str, db: Session = Depends(get_db)):
     student_section = get_Student_Section_by_studnumber(student_number)
 
     return {"section": student_section}
+
+""" Method """
+def get_Student_Status_In_CourseEnrolled(student_number: str):
+    db = SessionLocal()
+    student = db.query(Student).filter(Student.StudentNumber == student_number).first()
+
+    if not student:
+        return f"Student with student number {student_number} not found."
+    
+    student_id = student.StudentId
+
+    student_status = db.query(CourseEnrolled).filter(CourseEnrolled.StudentId == student_id).first()
+    
+    if not student_status:
+        return False
+    
+    db.close()
+
+    return student_status.Status
+
+@router.get("/student/get/course-enrolled/status/{student_number}", tags=["Student"])
+def get_Student_Status(student_number: str, db: Session = Depends(get_db)):
+    student_status = get_Student_Status_In_CourseEnrolled(student_number)
+
+    return {"status": student_status}
+
+""" Method """
+def get_Student_Class_Grade_by_studnumber(student_number: str):
+    db = SessionLocal()
+
+    student = db.query(Student).filter(Student.StudentNumber == student_number).first()
+
+    if not student:
+        db.close()
+        return f"Student with student number {student_number} not found."
+    
+    student_id = student.StudentId
+
+    student_grade = db.query(StudentClassGrade).\
+        filter(StudentClassGrade.StudentId == student_id).first()
+    
+    if not student_grade:
+        db.close()
+        return False
+    
+    db.close()
+
+    return student_grade.Grade
+
+@router.get("/student/get/grade/{student_number}", tags=["Student"])
+def get_Student_Class_Grade(student_number: str, db: Session = Depends(get_db)):
+    student_grade = get_Student_Class_Grade_by_studnumber(student_number)
+    
+    return {"grade": student_grade}
     
 """ ** POST Methods: All about students APIs ** """
 # Create a queue
@@ -1493,13 +1547,17 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
     if student_organization.OrganizationMemberRequirements == "Any":
         students = db.query(Student).all()
 
-        limit = 10
+        limit = 5
         iteration = 0
 
         for student in students:
             # Check if the student is not in the eligibles table yet with same election id
-            # Check CourseEnrolled if column status is 0
-            if not db.query(Eligibles).filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber).first():
+            # Check CourseEnrolled if column status is 0 (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)  
+            if not db.query(Eligibles)\
+                .filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber)\
+                .first() \
+                and get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:         
+                
                 if iteration == limit:
                     break
 
@@ -1534,7 +1592,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
     else:
         students = db.query(Student).all()
 
-        limit = 10
+        limit = 5
         iteration = 0
 
         for student in students:
@@ -1543,7 +1601,12 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
 
             if student_course:
                 # Check if the student's course matches the student organization course requirements and not in the eligibles table yet with same election id
-                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles).filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber).first():
+                # Check CourseEnrolled if column status is 0 (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)  
+                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles)\
+                    .filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber)\
+                    .first()\
+                    and get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:
+
                     if iteration == limit:
                         break
 
@@ -2456,7 +2519,8 @@ def get_CoC_By_Id(id: int, db: Session = Depends(get_db)):
         if student_section:
             coc_dict["Student"]["Section"] = student_section
 
-
+        coc_dict["Student"]["ClassGrade"] = get_Student_Class_Grade_by_studnumber(student.StudentNumber)
+        
         return {"coc": coc_dict}
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching CoC from the database"})
@@ -2474,7 +2538,6 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     election = db.query(Election).filter(Election.ElectionId == election_id).first()
     
     if manila_now > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
-
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
     # Check if the student exists in IncidentReport table
@@ -2482,6 +2545,12 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     incident_report = db.query(IncidentReport).filter(IncidentReport.StudentId == student_id).first()
     if incident_report:
         return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC due to an incident report associated with you."})
+    
+    # Check if the student is not graduated/continuing
+    student_graduated_code = get_Student_Status_In_CourseEnrolled(student_number)
+    # (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)
+    if student_graduated_code != 0:
+        return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC because you are not a continuing student."})
     
     # Check if the student exists in the database
     student = db.query(Student).filter(Student.StudentNumber == student_number).first()
