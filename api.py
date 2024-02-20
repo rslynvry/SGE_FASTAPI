@@ -1341,6 +1341,65 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
 
     return {"elections": elections_with_creator}
 
+@router.get("/election/all/organization/{student_organization_id}", tags=["Election"])
+async def get_All_Election_By_Student_Organization_Id(student_organization_id: int, db: Session = Depends(get_db)):
+    elections = db.query(Election).filter(Election.StudentOrganizationId == student_organization_id).order_by(Election.ElectionId).all()
+    elections_with_creator = []
+
+    for i, election in enumerate(elections):
+        creator = db.query(Student).filter(Student.StudentNumber == election.CreatedBy).first()
+        election_dict = election.to_dict(i+1)
+        election_dict["CreatedByName"] = (creator.FirstName + ' ' + (creator.MiddleName + ' ' if creator.MiddleName else '') + creator.LastName) if creator else ""
+
+        # Get the StudentOrganizationName of the election from the StudentOrganization table
+        student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
+        election_dict["StudentOrganizationName"] = student_organization.OrganizationName if student_organization else ""
+        
+        # Get the organization logo using secure_url from cloudinary stored in OrganizationLogo column
+        election_dict["OrganizationLogo"] = student_organization.OrganizationLogo
+
+        # Get the OrganizationMemberRequirement of the election from the StudentOrganization table
+        student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
+        election_dict["OrganizationMemberRequirement"] = student_organization.OrganizationMemberRequirements if student_organization else ""
+
+        # Get the number of candidates in the election
+        candidates = db.query(Candidates).filter(Candidates.ElectionId == election.ElectionId).all()
+        election_dict["NumberOfCandidates"] = len(candidates)
+        
+        # Get the number of partylists in the election who is approved
+        partylists = db.query(PartyList).filter(PartyList.ElectionId == election.ElectionId, PartyList.Status == 'Approved').all()
+        election_dict["NumberOfPartylists"] = len(partylists)
+
+        # Get the number of positions in the election
+        positions = db.query(CreatedElectionPosition).filter(CreatedElectionPosition.ElectionId == election.ElectionId).all()
+        election_dict["NumberOfPositions"] = len(positions)
+        
+        # Get the CreatedElectionPositions of the election then append it to the election_dict
+        election_dict["Positions"] = [position.to_dict(i+1) for i, position in enumerate(positions)]
+
+        # Determine what election period
+        now = manila_now
+        if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Pre-Election"
+
+        if now > election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Filing Period"
+
+        if now > election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Campaign Period"
+
+        if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Voting Period"
+
+        if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Appeal Period"
+
+        if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+            election_dict["ElectionPeriod"] = "Post-Election"
+
+        elections_with_creator.append(election_dict)
+
+    return {"elections": elections_with_creator}
 
 @router.get("/election/all/is-student-voted", tags=["Election"])
 def get_All_Election_Is_Student_Voted(student_number: str, db: Session = Depends(get_db)):
