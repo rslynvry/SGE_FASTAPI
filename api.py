@@ -1319,24 +1319,20 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
 
         # Determine what election period
         now = manila_now
-        if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
-            election_dict["ElectionPeriod"] = "Pre-Election"
+        election_dict["ElectionPeriod"] = "Pre-Election"
 
-        if now > election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
+        if now < election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Filing Period"
 
-        if now > election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
+        if now < election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Campaign Period"
 
-        if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
+        if now < election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Voting Period"
 
-        if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
-            election_dict["ElectionPeriod"] = "Appeal Period"
-
-        if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+        else:
             election_dict["ElectionPeriod"] = "Post-Election"
-
+        
         elections_with_creator.append(election_dict)
 
     return {"elections": elections_with_creator}
@@ -4053,21 +4049,17 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     now = manila_now
     if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Pre-Election"
-
-    if now > election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
+    elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Filing Period"
-
-    if now > election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')):
+    elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.CampaignEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Campaign Period"
-
-    if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
+    elif now >= election.VotingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Voting Period"
-
-    if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
+    elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Appeal Period"
-
-    if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+    else:
         election_data["ElectionPeriod"] = "Post-Election"
+
 
     # Count all candidates for this election
     num_candidates = db.query(Candidates).filter(Candidates.ElectionId == id).count()
