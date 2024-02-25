@@ -1772,6 +1772,15 @@ def get_All_Announcement(include_images: Optional[bool] = False, db: Session = D
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching all announcements from the database"})
     
+@router.get("/announcement/ascending/all", tags=["Announcement"])
+def get_All_Announcement(include_images: Optional[bool] = False, db: Session = Depends(get_db)):
+    try:
+        # Get by descending order
+        announcements = db.query(Announcement).order_by(asc(Announcement.AnnouncementId)).all()
+        return {"announcements": [announcement.to_dict(i+1, include_images=include_images) for i, announcement in enumerate(announcements)]} # Return the row number as well
+    except:
+        return JSONResponse(status_code=500, content={"detail": "Error while fetching all announcements from the database"})
+    
 @router.get("/announcement/{type}", tags=["Announcement"])
 def get_Announcement_By_Type(type: str, include_images: Optional[bool] = False, db: Session = Depends(get_db)):
     try:
@@ -3484,9 +3493,9 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
         # Get total votes of position from all candidates
         total_votes_position = sum(candidate.Votes for candidate in db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).all())
 
-        # Get total abstain count of position from all candidates unique by student number
-        total_abstain_count = db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name, Candidates.StudentNumber == 'abstain').count()
-
+        # Get total abstain count of position from one candidate unique by position since they are all the same
+        total_abstain_count = db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.SelectedPositionName == position_name).first().TimesAbstained
+       
         # Get all eligible voters for this election from eligibles table
         total_eligible_voters = db.query(Eligibles).filter(Eligibles.ElectionId == id).count()
 
@@ -3847,7 +3856,7 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
     for i, winner in enumerate(winners):
         candidate = db.query(Candidates).filter(Candidates.StudentNumber == winner.StudentNumber, Candidates.ElectionId == election_id).first()
         student = db.query(Student).filter(Student.StudentNumber == winner.StudentNumber).first()
-        
+
         full_name = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
         candidate_partylist = db.query(PartyList).filter(PartyList.PartyListId == candidate.PartyListId).first()
 
@@ -3861,31 +3870,33 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
 
         winners_dict[winner.SelectedPositionName]["is_tied"] = winner.IsTied
         winners_dict[winner.SelectedPositionName]["no_winner"] = False
-        winners_dict[winner.SelectedPositionName]["candidates"].append({
+
+        candidate_dict = {
             "full_name": full_name,
             "votes": winner.Votes,
             "partylist": candidate_partylist_name,
             "display_photo": display_photo_url if display_photo_url else "",
-        })
+        }
+        winners_dict[winner.SelectedPositionName]["candidates"].append(candidate_dict)
 
         # Get the candidate times abstained
-        winners_dict[winner.SelectedPositionName]["candidates"][i]["times_abstained"] = candidate.TimesAbstained
+        candidate_dict["times_abstained"] = candidate.TimesAbstained
 
         # Get the percentage of votes of the candidate
         election_analytic = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == election_id).first()
-        winners_dict[winner.SelectedPositionName]["candidates"][i]["percentage"] = (winner.Votes / election_analytic.VotesCount) * 100 if election_analytic.VotesCount > 0 else 0
+        candidate_dict["percentage"] = (winner.Votes / election_analytic.VotesCount) * 100 if election_analytic.VotesCount > 0 else 0
 
         # Get the candidate metadata
         candidate_metadata = get_Student_Metadata_by_studnumber(winner.StudentNumber)
         candidate_section = get_Student_Section_by_studnumber(winner.StudentNumber)
 
         if "CourseCode" in candidate_metadata:
-            winners_dict[winner.SelectedPositionName]["candidates"][i]["course_code"] = candidate_metadata["CourseCode"]
-            winners_dict[winner.SelectedPositionName]["candidates"][i]["year"] = candidate_metadata["Year"]
-            winners_dict[winner.SelectedPositionName]["candidates"][i]["semester"] = candidate_metadata["Semester"]
+            candidate_dict["course_code"] = candidate_metadata["CourseCode"]
+            candidate_dict["year"] = candidate_metadata["Year"]
+            candidate_dict["semester"] = candidate_metadata["Semester"]
 
         if candidate_section:
-            winners_dict[winner.SelectedPositionName]["candidates"][i]["section"] = candidate_section
+            candidate_dict["section"] = candidate_section
 
     # Count all eligibles for this election
     num_eligible_voters = db.query(Eligibles).filter(Eligibles.ElectionId == election_id).count()
