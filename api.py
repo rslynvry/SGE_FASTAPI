@@ -2984,8 +2984,19 @@ def get_All_Approved_PartyList_By_Election_Id(id: int, db: Session = Depends(get
 def get_All_Candidates_By_PartyList_Id(id: int, db: Session = Depends(get_db)):
     try:
         # Get all candidates in the CoC table that are approved and are running under this partylist ordered by position
-        partylist_candidates = db.query(CoC).join(CreatedElectionPosition, CreatedElectionPosition.ElectionId == CoC.ElectionId).filter(CoC.PartyListId == id, 
-                                                                                                                                        CoC.Status == 'Approved').order_by(CreatedElectionPosition.CreatedElectionPositionId).all()
+        partylist_candidates = db.query(CoC).join(
+            CreatedElectionPosition,
+            CreatedElectionPosition.ElectionId == CoC.ElectionId
+        ).join(
+            Student,
+            CoC.StudentNumber == Student.StudentNumber
+        ).filter(
+            CoC.PartyListId == id, 
+            CoC.Status == 'Approved'
+        ).order_by(
+            CreatedElectionPosition.CreatedElectionPositionId,
+            asc(func.concat(Student.FirstName, ' ', Student.MiddleName, ' ', Student.LastName))
+        ).all()
         
         partylist_candidates_dict = []
         # Include the student full name in student table by student number in the CoC table
@@ -3303,12 +3314,18 @@ def get_All_Candidates_By_Election_Id_Per_Position(id: int, db: Session = Depend
     try:
         # Get the candidates and order by CreatedElectionPositionId
         candidates = db.query(Candidates).join(
-            CreatedElectionPosition, 
+            CreatedElectionPosition,
             and_(
                 Candidates.SelectedPositionName == CreatedElectionPosition.PositionName,
                 Candidates.ElectionId == id
             )
-        ).order_by(CreatedElectionPosition.CreatedElectionPositionId).all()
+        ).join(
+            Student,
+            Candidates.StudentNumber == Student.StudentNumber
+        ).order_by(
+            CreatedElectionPosition.CreatedElectionPositionId,
+            asc(func.concat(Student.FirstName, ' ', Student.MiddleName, ' ', Student.LastName))
+        ).all()
 
         # Get the student row from student table using the student number in the candidate
         candidates_grouped_by_position = {}
@@ -3802,7 +3819,7 @@ def gather_winners_by_election_id(election_id: int):
     new_announcement = Announcement(
         AnnouncementType="results",
         AnnouncementTitle=f"Winners for the {election.ElectionName}",
-        AnnouncementBody=f"The winners for the {election.ElectionName} are now available. For more details, browse {election.ElectionName} page.",
+        AnnouncementBody = f"We are thrilled to announce that the results of the {election.ElectionName} are now available! We extend our heartfelt gratitude to everyone who participated and made this event a success. For more detailed information about the election, please visit the {election.ElectionName} page.",
         AttachmentType="Banner",
         AttachmentImage="", # Initialize the AttachmentImage column with an empty string
         created_at=manila_now,
