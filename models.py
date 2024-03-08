@@ -171,12 +171,12 @@ class IncidentReport(Base):
     Id = Column(Integer, primary_key=True, nullable=False) #ReportID
     Date = Column(String(20), nullable=False) #Date
     Time = Column(String(20), nullable=False) #Time
-    IncidentId = Column(Integer, ForeignKey('SCDSIncidentType.IncidentTypeId', ondelete="CASCADE")) #IncidentTypeID
     LocationId = Column(Integer, ForeignKey('SCDSLocation.LocationId', ondelete="CASCADE")) #LocationID
     StudentId = Column(Integer, ForeignKey('SPSStudent.StudentId', ondelete="CASCADE")) #StudentID
     ComplainantId = Column(Integer, ForeignKey('SPSStudent.StudentId', ondelete="CASCADE")) #ComplainantID
     InvestigatorId = Column(Integer, ForeignKey('FISFaculty.FacultyId', ondelete="CASCADE"), nullable=True) #InvestigatorID
     Description = Column(Text, nullable=False) #Description
+    Sanction = Column(Text, nullable=False) #Description
     Status = Column(String(20), nullable=False, default='pending') #Status
     IsAccessible = Column(Boolean, nullable=False, default=False) #IsAccessible
 
@@ -184,12 +184,12 @@ class IncidentReport(Base):
         return {
             'Date': self.Date,
             'Time': self.Time,
-            'IncidentId': self.IncidentId,
             'LocationId': self.LocationId,
             'StudentId': self.StudentId,
-            'ComplainantID': self.ComplainantID,
+            'ComplainantID': self.ComplainantId,
             'InvestigatorId': self.InvestigatorId,
             'Description': self.Description,
+            'Sanction': self.Sanction,
             'Status': self.Status,
             'IsAccessible': self.IsAccessible,
         }
