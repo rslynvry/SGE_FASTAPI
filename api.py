@@ -1550,6 +1550,8 @@ async def send_eligible_students_email_worker():
 # Start the worker in the background
 asyncio.create_task(send_eligible_students_email_worker())
 
+print(manila_now)
+
 @router.post("/election/create", tags=["Election"])
 async def save_election(election_data: CreateElectionData, db: Session = Depends(get_db)):
     new_election = Election(ElectionName=election_data.election_info.election_name,
