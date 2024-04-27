@@ -1548,8 +1548,9 @@ async def send_eligible_students_email_worker():
         # Indicate that the task is done
         send_eligible_students_email_queue.task_done()
 
-# Start the worker in the background
-asyncio.create_task(send_eligible_students_email_worker())
+# Start multiple workers in the background
+for _ in range(3):  # Adjust the number of workers based on your resources
+    asyncio.create_task(send_eligible_students_email_worker())
 
 print(manila_now())
 
@@ -1667,7 +1668,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                send_eligible_students_email_queue.put_nowait((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
@@ -1699,7 +1701,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                send_eligible_students_email_queue.put_nowait((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
