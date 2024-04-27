@@ -1580,6 +1580,20 @@ def fetch_all_student_courses():
 def get_all_student_courses():
     return fetch_all_student_courses()
 
+@router.get("/election/students-status-0", tags=["Election"])
+def get_students_status_0(db: Session = Depends(get_db)):
+    # Count how many students have status 0
+    students = db.query(Student).all()
+    student_statuses = fetch_all_student_statuses()
+    students_status_0 = []
+
+    for student in students:
+        if student_statuses.get(student.StudentNumber) == 0:
+            students_status_0.append(student.StudentNumber)
+
+    return {"students": students_status_0,
+            "count": len(students_status_0)}
+
 @router.post("/election/create", tags=["Election"])
 async def save_election(election_data: CreateElectionData, db: Session = Depends(get_db)):
     new_election = Election(ElectionName=election_data.election_info.election_name,
@@ -1653,7 +1667,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
@@ -1685,7 +1699,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
