@@ -1534,7 +1534,7 @@ def get_All_Approved_Candidates_CoC_By_Election_Id(id: int, db: Session = Depend
 send_eligible_students_email_queue = asyncio.Queue()
 
 # Define a worker function
-async def send_eligible_students_email_worker(server):
+async def send_eligible_students_email_worker():
     while True:
         # Get a task from the queue
         task = await send_eligible_students_email_queue.get()
@@ -1543,17 +1543,17 @@ async def send_eligible_students_email_worker(server):
         student_number, student_email, pass_code = task
 
         # Run the send_eligible_students_email function in a separate thread
-        await asyncio.to_thread(send_eligible_students_email, student_number, student_email, pass_code, server)
+        await asyncio.to_thread(send_eligible_students_email, student_number, student_email, pass_code)
 
         # Indicate that the task is done
         send_eligible_students_email_queue.task_done()
 
 # Set up the SMTP server
-server = setup_smtp_server()
+#server = setup_smtp_server()
 
 # Start multiple workers in the background
 for _ in range(3):  # Adjust the number of workers based on your resources
-    asyncio.create_task(send_eligible_students_email_worker(server))
+    asyncio.create_task(send_eligible_students_email_worker())
 
 print(manila_now())
 
