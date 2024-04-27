@@ -1605,8 +1605,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
     if student_organization.OrganizationMemberRequirements == "Any":
         students = db.query(Student).all()
 
-        limit = 5
-        iteration = 0
+        #limit = 5
+        #iteration = 0
 
         for student in students:
             # Check if the student is not in the eligibles table yet with same election id
@@ -1616,13 +1616,62 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                 .first() \
                 and get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:         
                 
-                if iteration == limit:
-                    break
+                #if iteration == limit:
+                    #break
 
                 # Only allow student who is in the student_emails_to_find list
-                if student.Email in student_emails_to_find:
+                #if student.Email in student_emails_to_find:
 
-                    iteration += 1
+                #iteration += 1
+
+                pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+                # Generate a random code
+                pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
+
+                # Hash the password
+                hashed_password = pwd_context.hash(pass_value)
+
+                # Get the email of the student
+                student_email = student.Email
+
+                new_eligible = Eligibles(ElectionId=new_election.ElectionId,
+                                        StudentNumber=student.StudentNumber,
+                                        HasVotedOrAbstained=False,
+                                        VotingPassword=hashed_password,
+                                        created_at=manila_now(), 
+                                        updated_at=manila_now())
+                db.add(new_eligible)
+                db.commit()
+
+                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+    
+    # If the student organization member requirement is not any course, insert students to eligibles table if matches with student organization member requirement
+    else:
+        students = db.query(Student).all()
+
+        #limit = 5
+        #iteration = 0
+
+        for student in students:
+            # Get the student's course
+            student_course = get_Student_Course_by_studnumber(student.StudentNumber, db)
+
+            if student_course:
+                # Check if the student's course matches the student organization course requirements and not in the eligibles table yet with same election id
+                # Check CourseEnrolled if column status is 0 (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)  
+                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles)\
+                    .filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber)\
+                    .first()\
+                    and get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:
+
+                    #if iteration == limit:
+                        #break
+
+                    # Only allow student who is in the student_emails_to_find list
+                    #if student.Email in student_emails_to_find:
+                    
+                       # iteration += 1
 
                     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -1645,55 +1694,6 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                     db.commit()
 
                     await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
-    
-    # If the student organization member requirement is not any course, insert students to eligibles table if matches with student organization member requirement
-    else:
-        students = db.query(Student).all()
-
-        limit = 5
-        iteration = 0
-
-        for student in students:
-            # Get the student's course
-            student_course = get_Student_Course_by_studnumber(student.StudentNumber, db)
-
-            if student_course:
-                # Check if the student's course matches the student organization course requirements and not in the eligibles table yet with same election id
-                # Check CourseEnrolled if column status is 0 (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)  
-                if student_course == student_organization.OrganizationMemberRequirements and not db.query(Eligibles)\
-                    .filter(Eligibles.ElectionId == new_election.ElectionId, Eligibles.StudentNumber == student.StudentNumber)\
-                    .first()\
-                    and get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:
-
-                    if iteration == limit:
-                        break
-
-                    # Only allow student who is in the student_emails_to_find list
-                    if student.Email in student_emails_to_find:
-                    
-                        iteration += 1
-
-                        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-                        # Generate a random code
-                        pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
-
-                        # Hash the password
-                        hashed_password = pwd_context.hash(pass_value)
-
-                        # Get the email of the student
-                        student_email = student.Email
-
-                        new_eligible = Eligibles(ElectionId=new_election.ElectionId,
-                                                StudentNumber=student.StudentNumber,
-                                                HasVotedOrAbstained=False,
-                                                VotingPassword=hashed_password,
-                                                created_at=manila_now(), 
-                                                updated_at=manila_now())
-                        db.add(new_eligible)
-                        db.commit()
-
-                        await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
     # Schedule the get_winners function to run at election.VotingEnd
     try:
