@@ -1553,6 +1553,33 @@ asyncio.create_task(send_eligible_students_email_worker())
 
 print(manila_now())
 
+def fetch_all_student_statuses():
+    db = SessionLocal()
+    # Join Student and CourseEnrolled tables and fetch all student statuses
+    students = db.query(Student.StudentNumber, CourseEnrolled.Status)\
+        .join(CourseEnrolled, CourseEnrolled.StudentId == Student.StudentId)\
+        .all()
+    db.close()
+    return dict(students)
+
+@router.get("/election/get-all/student-statuses", tags=["Election"])
+def get_all_student_statuses():
+    return fetch_all_student_statuses()
+
+def fetch_all_student_courses():
+    db = SessionLocal()
+    # Join Student, Course, and CourseEnrolled tables and fetch all student courses
+    students = db.query(Student.StudentNumber, Course.CourseCode)\
+        .join(CourseEnrolled, CourseEnrolled.StudentId == Student.StudentId)\
+        .join(Course, Course.CourseId == CourseEnrolled.CourseId)\
+        .all()
+    db.close()
+    return dict(students)
+
+@router.get("/election/get-all/student-courses", tags=["Election"])
+def get_all_student_courses():
+    return fetch_all_student_courses()
+
 @router.post("/election/create", tags=["Election"])
 async def save_election(election_data: CreateElectionData, db: Session = Depends(get_db)):
     new_election = Election(ElectionName=election_data.election_info.election_name,
@@ -1607,8 +1634,12 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         new_eligibles = []
 
+        # Get all student statuses at once
+        student_statuses = fetch_all_student_statuses()
+
         for student in students:
-            if get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:         
+            # Use the dictionary to check the student's status
+            if student_statuses.get(student.StudentNumber) == 0:
 
                 pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
                 hashed_password = pwd_context.hash(pass_value)
@@ -1622,7 +1653,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
@@ -1633,11 +1664,14 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
         pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
         new_eligibles = []
 
-        for student in students:
-            student_course = get_Student_Course_by_studnumber(student.StudentNumber, db)
+        # Get all student statuses and courses at once
+        student_statuses = fetch_all_student_statuses()
+        student_courses = fetch_all_student_courses()
 
-            if student_course and student_course == student_organization.OrganizationMemberRequirements and \
-                get_Student_Status_In_CourseEnrolled(student.StudentNumber) == 0:
+        for student in students:
+            # Use the dictionaries to check the student's status and course
+            if student_statuses.get(student.StudentNumber) == 0 and \
+            student_courses.get(student.StudentNumber) == student_organization.OrganizationMemberRequirements:
 
                 pass_value = ''.join(random.choices(string.ascii_uppercase + string.digits, k=7))
                 hashed_password = pwd_context.hash(pass_value)
@@ -1651,7 +1685,7 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                                         updated_at=manila_now())
                 new_eligibles.append(new_eligible)
 
-                await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
+                #await send_eligible_students_email_queue.put((student.StudentNumber, student_email, pass_value))
 
         db.add_all(new_eligibles)
         db.commit()
