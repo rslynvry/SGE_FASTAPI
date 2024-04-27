@@ -46,7 +46,7 @@ from cloudinary.api import resources_by_tag, delete_resources_by_tag, delete_fol
 
 from services import send_verification_code_email, send_pass_code_queue_email, send_pass_code_manual_email, \
     send_coc_status_email, send_partylist_status_email, send_appeal_response_email, send_pass_code_student_organization_officer_email, \
-    send_eligible_students_email
+    send_eligible_students_email, setup_smtp_server
 
 from models import Student, Announcement, Rule, Guideline, Election, SavedPosition, CreatedElectionPosition, Code, \
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
@@ -1534,23 +1534,26 @@ def get_All_Approved_Candidates_CoC_By_Election_Id(id: int, db: Session = Depend
 send_eligible_students_email_queue = asyncio.Queue()
 
 # Define a worker function
-async def send_eligible_students_email_worker():
+async def send_eligible_students_email_worker(server):
     while True:
-        db = SessionLocal()
-
         # Get a task from the queue
         task = await send_eligible_students_email_queue.get()
 
         # Process the task
         student_number, student_email, pass_code = task
-        send_eligible_students_email(student_number, student_email, pass_code)
+
+        # Run the send_eligible_students_email function in a separate thread
+        await asyncio.to_thread(send_eligible_students_email, student_number, student_email, pass_code, server)
 
         # Indicate that the task is done
         send_eligible_students_email_queue.task_done()
 
+# Set up the SMTP server
+server = setup_smtp_server()
+
 # Start multiple workers in the background
 for _ in range(3):  # Adjust the number of workers based on your resources
-    asyncio.create_task(send_eligible_students_email_worker())
+    asyncio.create_task(send_eligible_students_email_worker(server))
 
 print(manila_now())
 

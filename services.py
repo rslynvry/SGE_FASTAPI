@@ -314,14 +314,14 @@ def send_pass_code_student_organization_officer_email(student_number, student_em
 #########################################################
 """ Send email to eligible students for voting on election creation """
 
-def send_eligible_students_email(student_number, student_email, pass_code):
-    db = SessionLocal()
-
+def setup_smtp_server():
     # Set up the SMTP server
     server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
     server.login(EMAIL, PASSWORD)
+    return server
 
+def send_eligible_students_email(student_number, student_email, pass_code, server):
     # Create the email
     msg = MIMEMultipart()
     msg['From'] = EMAIL
@@ -343,4 +343,3 @@ def send_eligible_students_email(student_number, student_email, pass_code):
 
     # Send the email
     server.send_message(msg)
-    server.quit()
