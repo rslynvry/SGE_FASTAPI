@@ -52,7 +52,7 @@ from models import Student, Announcement, Rule, Guideline, Election, SavedPositi
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
                     Certifications, CreatedAdminSignatory, StudentOrganization, OrganizationOfficer, OrganizationMember, ElectionAppeals, \
                     Comelec, Eligibles, VotingReceipt, CertificationsSigned, CourseEnrolled, Course, StudentClassGrade, Class, Metadata, \
-                    IncidentReport
+                    IncidentReport, ViolationForm
 #################################################################
 """ Settings """
 
@@ -2615,12 +2615,12 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     if manila_now() > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
-    # Check if the student exists in IncidentReport table
+    # Check if the student exists in ViolationForm table
     student_id = db.query(Student).filter(Student.StudentNumber == student_number).first().StudentId
-    incident_report = db.query(IncidentReport).filter(IncidentReport.StudentId == student_id).first()
-    if incident_report:
-        return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC due to an incident report associated with you."})
-    
+    violation_form = db.query(ViolationForm).filter(ViolationForm.StudentId == student_id).first()
+    if violation_form:
+        return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC due to a violation associated with you."})
+
     # Check if the student is not graduated/continuing
     student_graduated_code = get_Student_Status_In_CourseEnrolled(student_number)
     # (0 - Not Graduated/Continuing ||  1 - Graduated  ||  2 - Drop  ||  3 - Transfer Course || 4 - Transfer School)
@@ -3365,7 +3365,7 @@ def get_All_Candidates_By_Election_Id_Per_Position(id: int, db: Session = Depend
 
             # Get the motto from coc table using the student number in the candidate
             if candidate.StudentNumber:
-                coc = db.query(CoC).filter(CoC.StudentNumber == candidate.StudentNumber, CoC.ElectionId == candidate.ElectionId).first()
+                coc = db.query(CoC).filter(CoC.StudentNumber == candidate.StudentNumber, CoC.ElectionId == candidate.ElectionId, CoC.Status == 'Approved').first()
                 candidate_dict["Motto"] = coc.Motto if coc else ""
                 candidate_dict["Platform"] = coc.Platform if coc else ""
 
@@ -3907,8 +3907,12 @@ def get_Winners_By_Election_Id(election_id: int, db: Session = Depends(get_db)):
         candidate_dict["times_abstained"] = candidate.TimesAbstained
 
         # Get the percentage of votes of the candidate
-        election_analytic = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == election_id).first()
-        candidate_dict["percentage"] = (winner.Votes / election_analytic.VotesCount) * 100 if election_analytic.VotesCount > 0 else 0
+        #election_analytic = db.query(ElectionAnalytics).filter(ElectionAnalytics.ElectionId == election_id).first()
+        #candidate_dict["percentage"] = (winner.Votes / election_analytic.VotesCount) * 100 if election_analytic.VotesCount > 0 else 0
+        
+        # Get the percentage of votes of the candidate by his/her position
+        total_votes_position = sum(candidate.Votes for candidate in db.query(Candidates).filter(Candidates.ElectionId == election_id, Candidates.SelectedPositionName == winner.SelectedPositionName).all())
+        candidate_dict["percentage"] = (winner.Votes / total_votes_position) * 100 if total_votes_position > 0 else 0
 
         # Get the candidate metadata
         candidate_metadata = get_Student_Metadata_by_studnumber(winner.StudentNumber)

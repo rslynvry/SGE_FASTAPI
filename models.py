@@ -193,6 +193,36 @@ class IncidentReport(Base):
             'Status': self.Status,
             'IsAccessible': self.IsAccessible,
         }
+    
+class ViolationForm(Base):
+    __tablename__ = 'SCDSViolationForm'
+    
+    ViolationId = Column(Integer, primary_key=True, autoincrement=True) #ViolationFormID
+    SelfDate = Column(String(20), nullable=False) #DateofSubmission
+    Date = Column(String(20), nullable=False) #Date
+    Time = Column(String(20), nullable=False) #Time
+    LocationId = Column(Integer, ForeignKey('SCDSLocation.LocationId', ondelete="CASCADE")) #LocationID
+    StudentId = Column(Integer, ForeignKey('SPSStudent.StudentId', ondelete="CASCADE")) #StudentID
+    IncidentId = Column(Integer, ForeignKey('SCDSIncidentType.IncidentTypeId', ondelete="CASCADE")) #IncidentTypeID
+    ComplainantId = Column(Integer, ForeignKey('FISFaculty.FacultyId', ondelete="CASCADE")) #ComplainantID
+    Description = Column(Text, nullable=False) #Description
+    Status = Column(String(512), nullable=False, default='pending') #Status
+    IsAccessible = Column(Boolean, nullable=False, default=False) #IsAccessible
+
+    def to_dict(self):
+        return {
+            'ViolationId': self.ViolationId,
+            'SelfDate': self.SelfDate, # 'DateofSubmission': '2021-09-01',
+            'Date': self.Date,
+            'Time': self.Time,
+            'LocationId': self.LocationId,
+            'StudentId': self.StudentId,
+            'IncidentID': self.IncidentId,
+            'ComplainantID': self.ComplainantId,
+            'Description': self.Description,
+            'Status': self.Status,
+            'IsAccessible': self.IsAccessible
+        }
 
 ##############################################################################
 ## SGE tables ## 
