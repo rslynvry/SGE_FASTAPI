@@ -4160,7 +4160,7 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
 @router.get("/reports/election/{election_id}/candidate/{student_number}", tags=["Reports"])
 def get_Reports_By_Election_Id_And_Candidate_StudentNumber(election_id: int, student_number: str, db: Session = Depends(get_db)):
     # Get the candidate info from coc
-    coc = db.query(CoC).filter(CoC.ElectionId == election_id, CoC.StudentNumber == student_number).first()
+    coc = db.query(CoC).filter(CoC.ElectionId == election_id, CoC.StudentNumber == student_number, CoC.Status == 'Approved').first()
     coc_dict = {}
 
     # Get the fullname of the candidate
