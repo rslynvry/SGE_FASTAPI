@@ -323,8 +323,7 @@ def setup_smtp_server():
 
 def send_eligible_students_email(student_number, student_email, pass_code):
     # Set up the SMTP server
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
+    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
     server.login(EMAIL, PASSWORD)
 
     # Create the email

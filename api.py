@@ -46,7 +46,7 @@ from cloudinary.api import resources_by_tag, delete_resources_by_tag, delete_fol
 
 from services import send_verification_code_email, send_pass_code_queue_email, send_pass_code_manual_email, \
     send_coc_status_email, send_partylist_status_email, send_appeal_response_email, send_pass_code_student_organization_officer_email, \
-    send_eligible_students_email, setup_smtp_server
+    send_eligible_students_email
 
 from models import Student, Announcement, Rule, Guideline, Election, SavedPosition, CreatedElectionPosition, Code, \
                     PartyList, CoC, InsertDataQueues, Candidates, RatingsTracker, VotingsTracker, ElectionAnalytics, ElectionWinners, \
@@ -1547,9 +1547,6 @@ async def send_eligible_students_email_worker():
 
         # Indicate that the task is done
         send_eligible_students_email_queue.task_done()
-
-# Set up the SMTP server
-#server = setup_smtp_server()
 
 # Start multiple workers in the background
 for _ in range(3):  # Adjust the number of workers based on your resources
