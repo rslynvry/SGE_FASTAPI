@@ -1586,17 +1586,13 @@ def get_all_student_courses():
 
 @router.get("/election/students-status-0", tags=["Election"])
 def get_students_status_0(db: Session = Depends(get_db)):
-    # Count how many students have status 0
-    students = db.query(Student).all()
-    student_statuses = fetch_all_student_statuses()
-    students_status_0 = []
-
-    for student in students:
-        if student_statuses.get(student.StudentNumber) == 0:
-            students_status_0.append(student.StudentNumber)
-
-    return {"students": students_status_0,
-            "count": len(students_status_0)}
+    # Count how many students have status 0 and course is BSIT
+    students = db.query(Student.StudentNumber)\
+        .join(CourseEnrolled, CourseEnrolled.StudentId == Student.StudentId)\
+        .filter(CourseEnrolled.Status == 0, CourseEnrolled.CourseId == 7)\
+        .all()
+    
+    return {"students": [student.StudentNumber for student in students], "count": len(students)}
 
 @router.post("/election/create", tags=["Election"])
 async def save_election(election_data: CreateElectionData, db: Session = Depends(get_db)):
@@ -4100,8 +4096,8 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
     num_candidates = db.query(Candidates).filter(Candidates.ElectionId == id).count()
     election_data['NumberOfCandidates'] = num_candidates    
 
-    # Count all partylists for this election
-    num_partylists = db.query(PartyList).filter(PartyList.ElectionId == id).count()
+    # Count all partylists for this election which is approved
+    num_partylists = db.query(PartyList).filter(PartyList.ElectionId == id, PartyList.Status == 'Approved').count()
     election_data['NumberOfPartylists'] = num_partylists
 
     # Count all voters population for this election
