@@ -2615,10 +2615,10 @@ async def save_CoC(election_id: int = Form(...), student_number: str = Form(...)
     if manila_now() > election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
         return JSONResponse(status_code=400, content={"error": "Filing period for this election has ended."})
     
-    # Check if the student exists in ViolationForm table
+    # Check if the student exists in ViolationForm table and status is not 'removed'
     student_id = db.query(Student).filter(Student.StudentNumber == student_number).first().StudentId
-    violation_form = db.query(ViolationForm).filter(ViolationForm.StudentId == student_id).first()
-    if violation_form:
+    violation = db.query(ViolationForm).filter(ViolationForm.StudentId == student_id, ViolationForm.Status != 'removed').first()
+    if violation:
         return JSONResponse(status_code=400, content={"error": "You are not allowed to file a CoC due to a violation associated with you."})
 
     # Check if the student is not graduated/continuing
