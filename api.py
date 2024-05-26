@@ -5,9 +5,9 @@ from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy import inspect, func, and_, desc, asc
 from sqlalchemy.orm import Session
 
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape, legal
 from reportlab.pdfgen import canvas
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Flowable, Image
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Flowable, Image, PageBreak
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER, TA_RIGHT
@@ -1328,7 +1328,7 @@ async def get_All_Election(background_tasks: BackgroundTasks, db: Session = Depe
         if now < election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Campaign Period"
 
-        if now < election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
+        if now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Voting Period"
 
         else:
@@ -1388,10 +1388,10 @@ async def get_All_Election_By_Student_Organization_Id(student_organization_id: i
         if now > election.VotingStart.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Voting Period"
 
-        if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
-            election_dict["ElectionPeriod"] = "Appeal Period"
+        #if now > election.AppealStart.replace(tzinfo=timezone('Asia/Manila')):
+        #    election_dict["ElectionPeriod"] = "Appeal Period"
 
-        if now > election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+        if now > election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
             election_dict["ElectionPeriod"] = "Post-Election"
 
         elections_with_creator.append(election_dict)
@@ -1607,8 +1607,8 @@ async def save_election(election_data: CreateElectionData, db: Session = Depends
                             CampaignEnd=election_data.election_info.campaign_end,
                             VotingStart=election_data.election_info.voting_start,
                             VotingEnd=election_data.election_info.voting_end,
-                            AppealStart=election_data.election_info.appeal_start,
-                            AppealEnd=election_data.election_info.appeal_end,
+                            AppealStart=election_data.election_info.voting_end, # Soft delete so set to voting end
+                            AppealEnd=election_data.election_info.voting_end, # Soft delete so set to voting end
                             created_at=manila_now(), 
                             updated_at=manila_now())
     db.add(new_election)
@@ -3543,6 +3543,465 @@ def get_Results_By_Election_Id_And_Position_Name(id: int, position_name: str, db
     except:
         return JSONResponse(status_code=500, content={"detail": "Error while fetching all candidates from the database"})
 
+@router.get("/votings/election/{id}/receipts", tags=["Votings"])
+def get_Receipts_By_Election_Id(id: int, db: Session = Depends(get_db)):
+    voting_receipts = db.query(VotingReceipt).filter(VotingReceipt.ElectionId == id).order_by(VotingReceipt.VotingReceiptId).all()
+
+    voting_receipts_dict = []
+    # Get the first name middle name if it exist and last name of candidate by studentnumber from student table
+    for i, voting_receipt in enumerate(voting_receipts):
+        student = db.query(Student).filter(Student.StudentNumber == voting_receipt.StudentNumber).first()
+        full_name = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
+
+        voting_receipts_dict.append({
+            "voting_receipt_id": voting_receipt.VotingReceiptId,
+            "student_number": voting_receipt.StudentNumber,
+            "full_name": full_name,
+            "receipt_pdf": voting_receipt.ReceiptPDF,
+            "created_at": voting_receipt.created_at,
+            "updated_at": voting_receipt.updated_at,
+        })
+
+    return {"voting_receipts": voting_receipts_dict}
+
+@router.get("/votings/receipt/{id}/download", tags=["Votings"])
+def download_Receipt_By_Id(id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    voting_receipt = db.query(VotingReceipt).filter(VotingReceipt.VotingReceiptId == id).first()
+
+    if not voting_receipt:
+        return JSONResponse(status_code=404, content={"error": "Voting receipt not found"})
+
+    try:
+        if voting_receipt.ReceiptPDF:
+            get_receipt = voting_receipt.ReceiptPDF
+
+            # Download the PDF
+            pdf = requests.get(get_receipt)
+
+            # Save the PDF named as the student number - receipt
+            file_name = f"{voting_receipt.StudentNumber}-receipt.pdf"
+            with open(file_name, 'wb') as f:
+                f.write(pdf.content)
+                
+            # Schedule the file to be deleted after the response is sent
+            background_tasks.add_task(remove_file, file_name)
+
+            return FileResponse(file_name, filename=file_name, media_type='application/pdf')
+    except:
+        return JSONResponse(status_code=500, content={"error": "Error while downloading the voting receipt"})
+
+@router.get("/votings/election/{id}/export", tags=["Votings"])
+def export_Votes_By_Election_Id(id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    election = db.query(Election).filter(Election.ElectionId == id).first()
+    election_data = {}  # Changed from [] to {}
+
+    student_organization = db.query(StudentOrganization).filter(StudentOrganization.StudentOrganizationId == election.StudentOrganizationId).first()
+    
+    # Get the studentorganization logo using secure URL from Cloudinary
+    election_data["StudentOrganizationLogo"] = student_organization.OrganizationLogo
+
+    election_data['StudentOrganizationName'] = student_organization.OrganizationName
+    election_data['ElectionName'] = election.ElectionName
+    election_data['Semester'] = election.Semester
+    election_data['SchoolYear'] = election.SchoolYear
+    election_data['CourseRequirement'] = student_organization.OrganizationMemberRequirements
+
+    now = manila_now()
+    if now < election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')):
+        election_data["ElectionPeriod"] = "Pre-Election"
+    elif now >= election.CoCFilingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.CoCFilingEnd.replace(tzinfo=timezone('Asia/Manila')):
+        election_data["ElectionPeriod"] = "Filing Period"
+    elif now >= election.CampaignStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.CampaignEnd.replace(tzinfo=timezone('Asia/Manila')):
+        election_data["ElectionPeriod"] = "Campaign Period"
+    elif now >= election.VotingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
+        election_data["ElectionPeriod"] = "Voting Period"
+    #elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+    #    election_data["ElectionPeriod"] = "Appeal Period"
+    else:
+        election_data["ElectionPeriod"] = "Post-Election"
+
+    # Count all candidates for this election
+    num_candidates = db.query(Candidates).filter(Candidates.ElectionId == id).count()
+    election_data['NumberOfCandidates'] = num_candidates    
+
+    # Count all partylists for this election which is approved
+    num_partylists = db.query(PartyList).filter(PartyList.ElectionId == id, PartyList.Status == 'Approved').count()
+    election_data['NumberOfPartylists'] = num_partylists
+
+    # Count all voters population for this election
+    num_voters = db.query(Eligibles).filter(Eligibles.ElectionId == id).count()
+    election_data['NumberOfVoters'] = num_voters
+
+    # Count all voters who voted for this election unique by student number
+    active_voters = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id).distinct(VotingsTracker.VoterStudentNumber).count()
+    election_data['NumberOfActiveVoters'] = active_voters
+    
+    # Count all voters who did not vote for this election
+    inactive_voters = num_voters - active_voters
+    election_data['NumberOfInactiveVoters'] = inactive_voters
+
+    # Count each voters course distribution for this election
+    # Insert all coursecode in course table as key
+    course_distribution = {}
+    courses = db.query(Course).all()
+    for course in courses:
+        course_distribution[course.CourseCode] = 0
+
+    # Count all in votingstracker table with election id and determine the coursecode via course id unique by student number
+    votes_per_course = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id).distinct(VotingsTracker.VoterStudentNumber).all()
+    for vote in votes_per_course:
+        # Increment coursecode count via course id
+        course = db.query(Course).filter(Course.CourseId == vote.CourseId).first()
+        course_distribution[course.CourseCode] += 1
+
+    election_data['CourseDistribution'] = course_distribution
+
+    # Count approved and rejected coc
+    approved_coc = db.query(CoC).filter(CoC.ElectionId == id, CoC.Status == 'Approved').count()
+    election_data['NumberOfApprovedCoC'] = approved_coc
+
+    rejected_coc = db.query(CoC).filter(CoC.ElectionId == id, CoC.Status == 'Rejected').count()
+    election_data['NumberOfRejectedCoC'] = rejected_coc
+
+    # Count approved and rejected partylist
+    approved_partylist = db.query(PartyList).filter(PartyList.ElectionId == id, PartyList.Status == 'Approved').count()
+    election_data['NumberOfApprovedPartylist'] = approved_partylist
+
+    rejected_partylist = db.query(PartyList).filter(PartyList.ElectionId == id, PartyList.Status == 'Rejected').count()
+    election_data['NumberOfRejectedPartylist'] = rejected_partylist
+
+    # Make a pdf report
+    pdf_name = f"Report_{now.strftime('%Y%m%d_%H%M%S')}.pdf"
+    doc = SimpleDocTemplate(pdf_name, pagesize=landscape(legal), topMargin=36)
+
+    # Get the default style sheet
+    styles = getSampleStyleSheet()
+
+    # Create a list to hold the PDF elements
+    elements = []
+
+    styles.add(ParagraphStyle(name="TitleStyleCenter", fontName="Times-Roman", fontSize=20, alignment=TA_CENTER, spaceAfter=6, leading=12))
+    styles.add(ParagraphStyle(name="TitleStyle2Center", fontName="Times-Roman", fontSize=16, alignment=TA_CENTER, spaceAfter=6, leading=12))
+    styles.add(ParagraphStyle(name="TitleStyle3Center", fontName="Times-Roman", fontSize=14, alignment=TA_CENTER, spaceAfter=6, leading=12))
+
+    styles.add(ParagraphStyle(name="TitleStyleLeft", fontName="Times-Roman", fontSize=12, alignment=TA_LEFT, spaceAfter=6, leading=12))
+    styles.add(ParagraphStyle(name="TitleStyleRight", fontName="Times-Roman", fontSize=12, alignment=TA_RIGHT, spaceAfter=6, leading=12))
+
+    styles.add(ParagraphStyle(name="JustifyContent", fontName="Times-Roman", fontSize=12, alignment=TA_JUSTIFY, spaceAfter=6, leading=12))
+    styles.add(ParagraphStyle(name="HeadingCenter", alignment=TA_CENTER))
+
+    # Add the logo
+    logo = Image("puplogo.png", width=80, height=80)  # Adjust the path and size as needed
+    elements.append(logo)
+    elements.append(Spacer(1, 8))
+
+    # Add the title
+    title = Paragraph("<b>Polytechnic University of the Philippines</b>", styles["TitleStyleCenter"])
+    elements.append(title)
+    elements.append(Spacer(1, 8))
+
+    # Add the election name
+    election_name = Paragraph(election_data['ElectionName'], styles["TitleStyle2Center"])
+    elements.append(election_name)
+
+    # Add the semester
+    semester = Paragraph(f"<b>Semester</b>: {election_data['Semester']}", styles["TitleStyleLeft"])
+    elements.append(Spacer(1, 8))
+
+    # Add the school year
+    school_year = Paragraph(f"<b>School Year</b>: {election_data['SchoolYear']}", styles["TitleStyleLeft"])
+    elements.append(Spacer(1, 8))
+
+    # Add the student organization name
+    student_organization_name = Paragraph(f"<b>Student Organization</b>: {election_data['StudentOrganizationName']}", styles["TitleStyleLeft"])
+    elements.append(Spacer(1, 8))
+
+    # Add the course requirement
+    course_requirement = Paragraph(f"<b>Course</b>: {election_data['CourseRequirement']}", styles["TitleStyleLeft"])
+    elements.append(Spacer(1, 8))
+
+    elements.append(semester)
+    elements.append(school_year)
+    elements.append(student_organization_name)
+    elements.append(course_requirement)
+    elements.append(Spacer(1, 12))
+
+    # Add labels for the metadata
+    metadata_label = Paragraph("<b>Election Metadata</b>", styles["TitleStyle3Center"])
+    elements.append(metadata_label)
+    elements.append(Spacer(1, 8))
+
+    # Make a table rows for the metadatas and column count
+    table_data = [
+        [Paragraph("<b>Metadata</b>", styles["HeadingCenter"]), Paragraph("<b>Count</b>", styles["HeadingCenter"])],
+        ["Voters", election_data['NumberOfVoters']],
+        ["Active Voters", election_data['NumberOfActiveVoters']],
+        ["Inactive Voters", election_data['NumberOfInactiveVoters']],
+        ["Candidates", election_data['NumberOfCandidates']],
+        ["Partylists", election_data['NumberOfPartylists']],
+        ["Approved CoC", election_data['NumberOfApprovedCoC']],
+        ["Rejected CoC", election_data['NumberOfRejectedCoC']],
+        ["Approved Partylist", election_data['NumberOfApprovedPartylist']],
+        ["Rejected Partylist", election_data['NumberOfRejectedPartylist']],
+    ]
+
+    # Add the table with grids and headers of title and count
+    table = Table(table_data, colWidths=[doc.width/2.5, doc.width/2.5])
+    table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(table)
+    elements.append(Spacer(1, 12))
+
+    # Next page
+    elements.append(PageBreak())
+
+    # Add labels for the course distribution
+    course_distribution_label = Paragraph("<b>Voter Course Distribution</b>", styles["TitleStyle3Center"])
+    elements.append(course_distribution_label)
+    elements.append(Spacer(1, 12))
+
+    # Add the course distribution
+    course_distribution = election_data['CourseDistribution']
+    course_distribution_table_data = [
+        [Paragraph("<b>Course</b>", styles["HeadingCenter"]), Paragraph("<b>Total</b>", styles["HeadingCenter"])],
+    ]
+    for course_code, count in course_distribution.items():
+        course_distribution_table_data.append([course_code, count])
+
+    course_distribution_table = Table(course_distribution_table_data, colWidths=[doc.width/2.5, doc.width/2.5])
+    course_distribution_table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(course_distribution_table)
+    elements.append(Spacer(1, 16))
+
+    """
+        Candidates Data
+    """
+
+    # Get all the candidates info from coc
+    cocs = db.query(CoC).filter(CoC.ElectionId == id, CoC.Status == 'Approved').all()
+    cocs_all_data = []
+
+    # Loop over all candidates
+    for coc in cocs:
+        coc_dict = {}
+
+        # Get the fullname of the candidate
+        student = db.query(Student).filter(Student.StudentNumber == coc.StudentNumber).first()
+        coc_dict["StudentNumber"] = coc.StudentNumber
+        coc_dict["FullName"] = student.FirstName + " " + student.MiddleName + " " + student.LastName if student.MiddleName else student.FirstName + " " + student.LastName
+
+        # Get the display photo using secure URL from Cloudinary
+        coc_dict["DisplayPhoto"] = coc.DisplayPhoto
+
+        # Get the position name of the candidate
+        coc_dict["PositionName"] = coc.SelectedPositionName
+
+        # Get the partylist name of the candidate
+        partylist = db.query(PartyList).filter(PartyList.PartyListId == coc.PartyListId).first()
+        
+        if partylist:
+            coc_dict["PartyListName"] = partylist.PartyListName
+        else:
+            coc_dict["PartyListName"] = "Independent"
+
+        # Get candidate course, year and section
+        course = ""
+        year = ""
+        section = ""
+
+        get_student_metadata = get_Student_Metadata_by_studnumber(coc.StudentNumber)
+        get_student_section = get_Student_Section_by_studnumber(coc.StudentNumber)
+
+        if "CourseCode" in get_student_metadata:
+            course = get_student_metadata["CourseCode"]
+            year = get_student_metadata["Year"]
+
+        if get_student_section:
+            section = get_student_section
+
+        coc_dict["CourseYearSection"] = f"{course} {year}-{section}"
+
+        # Get the motto 
+        coc_dict["Motto"] = coc.Motto
+
+        # Get candidate platform
+        coc_dict["Platform"] = coc.Platform
+
+        # Get candidate votes 
+        candidate = db.query(Candidates).filter(Candidates.ElectionId == id, Candidates.StudentNumber == coc.StudentNumber).first()
+        coc_dict["Votes"] = candidate.Votes
+
+        # Get candidate abstains
+        coc_dict["Abstains"] = candidate.TimesAbstained
+
+        # Get votes per course (Can be specified by VotingTrackers table but course is not included in the table Student and structure will change so keep this for now)
+        candidate_id = candidate.CandidateId
+
+        # loop in votingstracker to get the votes per course with corresponing election id and votedcandidate id unique by student number
+        votes_per_course = db.query(VotingsTracker).filter(VotingsTracker.ElectionId == id, VotingsTracker.VotedCandidateId == candidate_id).distinct(VotingsTracker.VoterStudentNumber).all()
+        
+        # Make a dict and insert all coursecode in course table as key and initialize the value to 0
+        course_dict = {}
+        courses = db.query(Course).all()
+        for course in courses:
+            course_dict[course.CourseCode] = 0
+
+        # Loop in votes_per_course and increment the value of coursecode key in course_dict
+        for vote in votes_per_course:
+            # Get the courscode via courseid
+            course = db.query(Course).filter(Course.CourseId == vote.CourseId).first()
+            course_code = course.CourseCode
+
+            course_dict[course_code] += 1
+
+        coc_dict["VotesPerCourse"] = course_dict
+
+        # Get candidate ratings
+        coc_dict["OneStar"] = candidate.OneStar
+        coc_dict["TwoStar"] = candidate.TwoStar
+        coc_dict["ThreeStar"] = candidate.ThreeStar
+        coc_dict["FourStar"] = candidate.FourStar
+        coc_dict["FiveStar"] = candidate.FiveStar
+
+        cocs_all_data.append(coc_dict)
+
+    # Next page
+    elements.append(PageBreak())
+
+    # Add labels for the candidates data
+    candidates_data_label = Paragraph("<b>Candidates Data</b>", styles["TitleStyle3Center"])
+    elements.append(candidates_data_label)
+    elements.append(Spacer(1, 12))
+
+    # Make a table
+    candidates_data_table_data = [
+        [
+            Paragraph("<b>Student Number</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Candidate Name</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Course Yr-Sec</b>", styles["HeadingCenter"]),
+            Paragraph("<b>Partylist</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Position</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Votes</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Abstains</b>", styles["HeadingCenter"]),
+        ]
+    ]
+
+    for coc in cocs_all_data:
+        candidates_data_table_data.append([
+            coc["StudentNumber"],
+            coc["FullName"],
+            coc["CourseYearSection"],
+            coc["PartyListName"],
+            coc["PositionName"],
+            coc["Votes"],
+            coc["Abstains"],
+        ])
+
+    colWidths = [150, 150, 100, 150, 100, 100, 100]  # Adjust the column widths as needed
+
+    candidates_data_table = Table(candidates_data_table_data, colWidths=colWidths)
+    candidates_data_table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(candidates_data_table)
+    elements.append(Spacer(1, 16))
+
+    # Next page
+    elements.append(PageBreak())
+
+    # Add labels for the course distribution
+    course_distribution_label = Paragraph("<b>Voter Course Distribution</b>", styles["TitleStyle3Center"])
+    elements.append(course_distribution_label)
+    elements.append(Spacer(1, 12))
+
+    # Add the course distribution columns are (FullName, courses_dict, Votes)
+    course_distribution_table_data = [
+        [
+            Paragraph("<b>Candidate Name</b>", styles["HeadingCenter"]), 
+            *[Paragraph(f"<b>{course_code}</b>", styles["HeadingCenter"]) for course_code in course_distribution.keys()],
+        ] 
+    ]
+
+    for coc in cocs_all_data:
+        course_distribution_table_data.append([
+            coc["FullName"],
+            *[Paragraph(str(coc["VotesPerCourse"][course_code]), styles["HeadingCenter"]) for course_code in course_distribution.keys()],
+        ])
+
+    course_distribution_table = Table(course_distribution_table_data, colWidths=[150, 80])
+    course_distribution_table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(course_distribution_table)
+    elements.append(Spacer(1, 16))
+
+    # Next page
+    elements.append(PageBreak())
+
+    # Add labels for the ratings data
+    ratings_data_label = Paragraph("<b>Ratings Data (Each star)</b>", styles["TitleStyle3Center"])
+    elements.append(ratings_data_label)
+    elements.append(Spacer(1, 12))
+
+    # Make a table
+    ratings_data_table_data = [
+        [
+            Paragraph("<b>Student Number</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>Candidate Name</b>", styles["HeadingCenter"]), 
+            Paragraph("<b>One</b>", styles["HeadingCenter"]),
+            Paragraph("<b>Two</b>", styles["HeadingCenter"]),
+            Paragraph("<b>Three</b>", styles["HeadingCenter"]),
+            Paragraph("<b>Four</b>", styles["HeadingCenter"]),
+            Paragraph("<b>Five</b>", styles["HeadingCenter"]),
+        ]
+    ]
+
+    for coc in cocs_all_data:
+        ratings_data_table_data.append([
+            coc["StudentNumber"],
+            coc["FullName"],
+            coc["OneStar"],
+            coc["TwoStar"],
+            coc["ThreeStar"],
+            coc["FourStar"],
+            coc["FiveStar"],
+        ])
+
+    colWidths = [150, 150, 60]  # Adjust the column widths as needed
+
+    ratings_data_table = Table(ratings_data_table_data, colWidths=colWidths)
+    ratings_data_table.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+
+    elements.append(ratings_data_table)
+    elements.append(Spacer(1, 16))
+
+    # Add the PDF to the elements
+    doc.build(elements)
+
+    # Schedule the file to be deleted after the response is sent
+    background_tasks.add_task(remove_file, pdf_name)
+
+    return FileResponse(pdf_name, filename=pdf_name, media_type='application/pdf')    
+
 """ ** POST Methods: All about VotingsTracker Table APIs ** """
 
 @router.post("/votings/submit", tags=["Votings"])
@@ -3705,8 +4164,10 @@ def save_Votes(votes_list: VotesList, db: Session = Depends(get_db)):
     for abstain in votes_list.abstainList:
         candidates = db.query(Candidates).filter(Candidates.SelectedPositionName == abstain, Candidates.ElectionId == votes_list.election_id).all()
 
+        # Add the position to the list only if it's not already there
         for candidate in candidates:
-            abstains_by_position[candidate.SelectedPositionName].append(candidate.SelectedPositionName)
+            if candidate.SelectedPositionName not in abstains_by_position[candidate.SelectedPositionName]:
+                abstains_by_position[candidate.SelectedPositionName].append(candidate.SelectedPositionName)
 
     # Check if there are no abstains in abstain_by_position
     if not abstains_by_position:
@@ -4087,8 +4548,8 @@ def get_Reports_By_Election_Id(id: int, db: Session = Depends(get_db)):
         election_data["ElectionPeriod"] = "Campaign Period"
     elif now >= election.VotingStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.VotingEnd.replace(tzinfo=timezone('Asia/Manila')):
         election_data["ElectionPeriod"] = "Voting Period"
-    elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
-        election_data["ElectionPeriod"] = "Appeal Period"
+    #elif now >= election.AppealStart.replace(tzinfo=timezone('Asia/Manila')) and now < election.AppealEnd.replace(tzinfo=timezone('Asia/Manila')):
+    #    election_data["ElectionPeriod"] = "Appeal Period"
     else:
         election_data["ElectionPeriod"] = "Post-Election"
 
